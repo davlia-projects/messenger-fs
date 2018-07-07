@@ -1,0 +1,6 @@
+[package]
+name = "messenger-fs"
+version = "0.1.0"
+authors = ["davlia <danedaworld@gmail.com>"]
+
+[dependencies]
