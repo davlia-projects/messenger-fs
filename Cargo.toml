@@ -1,6 +1,11 @@
 [package]
 name = "messenger-fs"
 version = "0.1.0"
-authors = ["davlia <danedaworld@gmail.com>"]
+authors = ["davlia <davidliao96@gmail.com>"]
 
 [dependencies]
+fuse = "0.3"
+time = "0.1.40"
+libc = "0.2.42"
+
+
