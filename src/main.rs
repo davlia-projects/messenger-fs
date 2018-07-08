@@ -8,6 +8,7 @@ extern crate failure;
 
 // use std::cell::RefCell;
 use std::cell::{Ref, RefCell};
+use std::cmp::min;
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
 use std::ffi::OsStr;
@@ -18,8 +19,8 @@ use std::result::Result;
 
 use failure::{err_msg, Error};
 use fuse::{
-    FileAttr, FileType, Filesystem, ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory, ReplyEntry,
-    ReplyOpen, ReplyWrite, Request,
+    consts::FOPEN_DIRECT_IO, FileAttr, FileType, Filesystem, ReplyAttr, ReplyCreate, ReplyData,
+    ReplyDirectory, ReplyEntry, ReplyOpen, ReplyWrite, Request,
 };
 use libc::{EIO, ENFILE, ENOENT};
 use time::Timespec;
@@ -28,27 +29,30 @@ const USER_DIR: u16 = 0o777;
 
 struct FileSystemEntry {
     inode: u64,
+    name: String,
     filetype: FileType,
     data: Option<Vec<u8>>,
     children: Option<Vec<Rc<RefCell<Box<FileSystemEntry>>>>>,
 }
 
 impl FileSystemEntry {
-    fn new(filetype: FileType) -> Self {
+    fn new(name: String, filetype: FileType) -> Self {
         Self {
             inode: 1,
             data: None,
             children: None,
+            name,
             filetype,
         }
     }
 
-    fn with_inode(filetype: FileType, inode: u64) -> Self {
+    fn with_inode(name: String, filetype: FileType, inode: u64) -> Self {
         Self {
             inode,
             data: None,
             children: None,
             filetype,
+            name,
         }
     }
 }
@@ -65,6 +69,7 @@ impl MessengerFS {
         let mut attrs = BTreeMap::new();
         let mut inodes = BTreeMap::new();
         let fs = Rc::new(RefCell::new(Box::new(FileSystemEntry::new(
+            "/".to_string(),
             FileType::Directory,
         ))));
         let ts = time::now().to_timespec();
@@ -110,13 +115,15 @@ impl MessengerFS {
         let entry = self.find(parent).ok_or(err_msg("Could not find inode"))?;
         let mut entry = entry.borrow_mut();
         let inode = self.get_next_inode();
-        let new_entry = FileSystemEntry::with_inode(FileType::RegularFile, inode);
-        match entry.children {
-            Some(ref mut children) => children.push(Rc::new(RefCell::new(Box::new(new_entry)))),
-            None => {
-                Some(vec![Rc::new(RefCell::new(Box::new(new_entry)))]);
-            }
-        }
+        let new_entry = FileSystemEntry::with_inode(
+            name.to_str().expect("Could not parse os str").to_owned(),
+            FileType::RegularFile,
+            inode,
+        );
+        entry
+            .children
+            .get_or_insert_with(Vec::new)
+            .push(Rc::new(RefCell::new(Box::new(new_entry))));
         let ts = time::now().to_timespec();
         let attr = FileAttr {
             ino: inode,
@@ -140,8 +147,8 @@ impl MessengerFS {
         Ok(attr)
     }
 
-    fn fs_open(&self, ino: u64, flags: u32) -> Result<(u64, u32), Error> {
-        Ok((ino, flags)) // TODO: Generate file handles
+    fn fs_open(&self, ino: u64, flags: u32) -> Result<u64, Error> {
+        Ok(ino) // TODO: Generate file handles
     }
 
     fn fs_write(
@@ -160,7 +167,8 @@ impl MessengerFS {
             entry.data = Some(Vec::new())
         }
         if let Some(ref mut existing_data) = entry.data {
-            let tmp = existing_data[offset..(offset + add_size)]
+            let end = min(offset + add_size, existing_data.len());
+            let tmp = existing_data[offset..end]
                 .iter()
                 .cloned()
                 .collect::<Vec<u8>>();
@@ -213,10 +221,25 @@ impl Filesystem for MessengerFS {
         offset: i64,
         mut reply: ReplyDirectory,
     ) {
+        println!("readdir(ino={}, fh={}, offset={})", ino, fh, offset);
         if ino == 1 {
             if offset == 0 {
                 reply.add(1, 0, FileType::Directory, &PathBuf::from("."));
                 reply.add(1, 1, FileType::Directory, &PathBuf::from(".."));
+                if let Some(result) = self.find(ino) {
+                    let entry = result.borrow();
+                    if let Some(children) = entry.children.as_ref() {
+                        for child in children {
+                            let child = child.borrow();
+                            reply.add(
+                                child.inode,
+                                child.inode as i64,
+                                child.filetype,
+                                OsStr::new(&child.name),
+                            );
+                        }
+                    }
+                }
             }
             reply.ok();
         } else {
@@ -254,13 +277,16 @@ impl Filesystem for MessengerFS {
             "read(ino={}, fh={}, offset={}, size={})",
             ino, fh, offset, size
         );
-        for (key, &inode) in self.inodes.iter() {
-            if inode == ino {
-                reply.data("hello world".as_bytes());
-                return;
+        match self.find(ino) {
+            Some(entry) => {
+                let entry = entry.borrow();
+                if let Some(ref data) = entry.data {
+                    let start = min(offset as usize, data.len());
+                    reply.data(&data[start..]);
+                }
             }
+            None => reply.error(ENOENT),
         }
-        reply.error(ENOENT);
     }
 
     fn write(
@@ -290,7 +316,7 @@ impl Filesystem for MessengerFS {
         println!("open(ino={}, flags={})", ino, flags);
         let result = self.fs_open(ino, flags);
         match result {
-            Ok((fh, flags)) => reply.opened(fh, flags),
+            Ok(fh) => reply.opened(fh, 0),
             Err(_) => reply.error(ENOENT),
         }
     }
