@@ -1,33 +1,72 @@
+#![feature(box_syntax, box_patterns)]
 extern crate fuse;
 #[feature(libc)]
 extern crate libc;
 extern crate time;
+#[macro_use]
+extern crate failure;
 
-// use std::io::FileType;
+// use std::cell::RefCell;
+use std::cell::{Ref, RefCell};
+use std::collections::BTreeMap;
+use std::collections::VecDeque;
+use std::ffi::OsStr;
+use std::fs;
+use std::path::PathBuf;
+use std::rc::Rc;
+use std::result::Result;
+
+use failure::{err_msg, Error};
 use fuse::{
     FileAttr, FileType, Filesystem, ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory, ReplyEntry,
     ReplyOpen, ReplyWrite, Request,
 };
-use libc::{ENOENT, ENOSYS};
-use std::collections::BTreeMap;
-use std::ffi::OsStr;
-use std::fs;
-use std::mem;
-use std::os;
-use std::path::PathBuf;
+use libc::{EIO, ENFILE, ENOENT};
 use time::Timespec;
 
 const USER_DIR: u16 = 0o777;
 
+struct FileSystemEntry {
+    inode: u64,
+    filetype: FileType,
+    data: Option<Vec<u8>>,
+    children: Option<Vec<Rc<RefCell<Box<FileSystemEntry>>>>>,
+}
+
+impl FileSystemEntry {
+    fn new(filetype: FileType) -> Self {
+        Self {
+            inode: 1,
+            data: None,
+            children: None,
+            filetype,
+        }
+    }
+
+    fn with_inode(filetype: FileType, inode: u64) -> Self {
+        Self {
+            inode,
+            data: None,
+            children: None,
+            filetype,
+        }
+    }
+}
+
 struct MessengerFS {
+    inode: u64,
     attrs: BTreeMap<u64, FileAttr>,
     inodes: BTreeMap<String, u64>,
+    fs: Rc<RefCell<Box<FileSystemEntry>>>,
 }
 
 impl MessengerFS {
     fn new() -> Self {
         let mut attrs = BTreeMap::new();
         let mut inodes = BTreeMap::new();
+        let fs = Rc::new(RefCell::new(Box::new(FileSystemEntry::new(
+            FileType::Directory,
+        ))));
         let ts = time::now().to_timespec();
         let attr = FileAttr {
             ino: 1,
@@ -47,10 +86,111 @@ impl MessengerFS {
         };
         attrs.insert(1, attr);
         inodes.insert("/".to_owned(), 1);
-        Self { attrs, inodes }
+        Self {
+            inode: 2,
+            attrs,
+            inodes,
+            fs,
+        }
     }
 
-    fn create() {}
+    fn get_next_inode(&mut self) -> u64 {
+        let inode = self.inode;
+        self.inode += 1;
+        inode
+    }
+
+    fn fs_create(
+        &mut self,
+        parent: u64,
+        name: &OsStr,
+        mode: u32,
+        flags: u32,
+    ) -> Result<FileAttr, Error> {
+        let entry = self.find(parent).ok_or(err_msg("Could not find inode"))?;
+        let mut entry = entry.borrow_mut();
+        let inode = self.get_next_inode();
+        let new_entry = FileSystemEntry::with_inode(FileType::RegularFile, inode);
+        match entry.children {
+            Some(ref mut children) => children.push(Rc::new(RefCell::new(Box::new(new_entry)))),
+            None => {
+                Some(vec![Rc::new(RefCell::new(Box::new(new_entry)))]);
+            }
+        }
+        let ts = time::now().to_timespec();
+        let attr = FileAttr {
+            ino: inode,
+            size: 0,
+            blocks: 0,
+            atime: ts,
+            mtime: ts,
+            ctime: ts,
+            crtime: ts,
+            kind: FileType::RegularFile,
+            perm: USER_DIR,
+            nlink: 0,
+            uid: 0,
+            gid: 0,
+            rdev: 0,
+            flags: 0,
+        };
+        let name = name.to_str().expect("Could not parse os str");
+        self.inodes.insert(name.to_owned(), inode);
+        self.attrs.insert(inode, attr.clone());
+        Ok(attr)
+    }
+
+    fn fs_open(&self, ino: u64, flags: u32) -> Result<(u64, u32), Error> {
+        Ok((ino, flags)) // TODO: Generate file handles
+    }
+
+    fn fs_write(
+        &self,
+        ino: u64,
+        fh: u64,
+        offset: i64,
+        data: &[u8],
+        flags: u32,
+    ) -> Result<u32, Error> {
+        let entry = self.find(ino).ok_or(err_msg("Could not find inode"))?;
+        let mut entry = entry.borrow_mut();
+        let offset = offset as usize; // TODO: Support negative wrap-around indexing
+        let add_size = data.len() as usize;
+        if entry.data.is_none() {
+            entry.data = Some(Vec::new())
+        }
+        if let Some(ref mut existing_data) = entry.data {
+            let tmp = existing_data[offset..(offset + add_size)]
+                .iter()
+                .cloned()
+                .collect::<Vec<u8>>();
+            *existing_data = existing_data[..offset]
+                .iter()
+                .chain(data.iter())
+                .chain(tmp.iter())
+                .cloned()
+                .collect();
+        }
+        Ok(add_size as u32)
+    }
+
+    fn find(&self, inode: u64) -> Option<Rc<RefCell<Box<FileSystemEntry>>>> {
+        let mut stack = VecDeque::new();
+        stack.push_back(self.fs.clone());
+        while !stack.is_empty() {
+            let entry = stack.pop_front().unwrap();
+            if entry.borrow().inode == inode {
+                return Some(entry);
+            }
+            let entry = entry.borrow();
+            if let Some(children) = entry.children.clone() {
+                for entry in children {
+                    stack.push_back(entry);
+                }
+            }
+        }
+        None
+    }
 }
 
 impl Filesystem for MessengerFS {
@@ -134,16 +274,25 @@ impl Filesystem for MessengerFS {
         reply: ReplyWrite,
     ) {
         println!(
-            "write(ino={}, fh={}, offset={}, data={})",
-            ino,
-            fh,
-            offset,
-            String::from_utf8(data.to_vec()).expect("Could not format as utf-8"),
+            "write(ino={}, fh={}, offset={}, data={:?})",
+            ino, fh, offset, data,
         );
+        let result = self.fs_write(ino, fh, offset, data, flags);
+        match result {
+            Ok(written) => {
+                reply.written(written);
+            }
+            Err(_) => reply.error(EIO),
+        }
     }
 
     fn open(&mut self, _req: &Request, ino: u64, flags: u32, reply: ReplyOpen) {
         println!("open(ino={}, flags={})", ino, flags);
+        let result = self.fs_open(ino, flags);
+        match result {
+            Ok((fh, flags)) => reply.opened(fh, flags),
+            Err(_) => reply.error(ENOENT),
+        }
     }
 
     fn create(
@@ -162,6 +311,17 @@ impl Filesystem for MessengerFS {
             mode,
             flags,
         );
+        let result = self.fs_create(parent, name, mode, flags);
+        match result {
+            Ok(attr) => {
+                println!("CREATING A FILE");
+                let ttl = Timespec::new(1, 0);
+                let generation = 0; // I have no idea what this is
+                let fh = attr.ino; // TODO: Generate unique file handles
+                reply.created(&ttl, &attr, generation, fh, flags)
+            }
+            Err(_) => reply.error(ENFILE),
+        }
     }
 }
 

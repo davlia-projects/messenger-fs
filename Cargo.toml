@@ -7,5 +7,6 @@ authors = ["davlia <davidliao96@gmail.com>"]
 fuse = "0.3"
 time = "0.1.40"
 libc = "0.2.42"
+failure = "0.1.1"
 
 
