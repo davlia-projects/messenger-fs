@@ -21,7 +21,7 @@ use std::ffi::OsStr;
 use std::fs;
 use std::path::PathBuf;
 
-use client::messenger::Credentials;
+use client::credentials::Credentials;
 use client::messenger::MessengerClient;
 use messengerfs::MessengerFS;
 

@@ -128,6 +128,7 @@ impl MessengerClient {
             .header(ContentType::form_url_encoded())
             .header(user_agent.clone())
             .header(referer.clone())
+            .header(SetCookie(vec![format!("_js_datr={}", datr)]))
             .form(&params)
             .send()?;
 
