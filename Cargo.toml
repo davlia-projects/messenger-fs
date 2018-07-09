@@ -8,5 +8,9 @@ fuse = "0.3"
 time = "0.1.40"
 libc = "0.2.42"
 failure = "0.1.1"
-
-
+hyper = "0.12"
+hyper-tls = "0.3.0"
+tokio = "0.1.7"
+select = "0.4.2"
+reqwest = "0.8.6"
+regex = "1"

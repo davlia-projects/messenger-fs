@@ -8,7 +8,7 @@ use std::result::Result;
 use failure::{err_msg, Error};
 use fuse::{FileAttr, FileType, Request};
 
-use constants::USER_DIR;
+use common::constants::USER_DIR;
 use entry::FileSystemEntry;
 
 pub struct MessengerFS {
