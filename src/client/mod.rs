@@ -1,3 +1,3 @@
-pub mod config;
-pub mod credentials;
-pub mod messenger;
+pub(crate) mod config;
+pub(crate) mod credentials;
+pub(crate) mod messenger;

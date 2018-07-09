@@ -8,6 +8,10 @@ extern crate libc;
 extern crate regex;
 extern crate reqwest;
 extern crate select;
+extern crate serde;
+#[macro_use]
+extern crate serde_derive;
+extern crate serde_json;
 extern crate time;
 extern crate tokio;
 
@@ -15,27 +19,26 @@ mod client;
 mod common;
 mod entry;
 mod fsapi;
+mod messenger;
 mod messengerfs;
 
 use std::ffi::OsStr;
 use std::fs;
-use std::path::PathBuf;
 
 use client::credentials::Credentials;
-use client::messenger::MessengerClient;
+use messenger::session::Session;
 use messengerfs::MessengerFS;
 
 fn main() {
     let credentials = Credentials::from_env();
 
-    let mut client = MessengerClient::new();
-    client.authenticate(credentials);
+    let mut session = Session::new(credentials);
 
-    // let fs = MessengerFS::new();
-    // fs::create_dir_all("./fs/").expect("Could not create mount directory");
-    // let options = ["-o", "noappledouble", "allow_other"]
-    //     .iter()
-    //     .map(|o| o.as_ref())
-    //     .collect::<Vec<&OsStr>>();
+    let fs = MessengerFS::new();
+    fs::create_dir_all("./fs/").expect("Could not create mount directory");
+    let options = ["-o", "noappledouble", "allow_other"]
+        .iter()
+        .map(|o| o.as_ref())
+        .collect::<Vec<&OsStr>>();
     // fuse::mount(fs, &PathBuf::from("./fs/"), &options).expect("Could not mount filesystem");
 }

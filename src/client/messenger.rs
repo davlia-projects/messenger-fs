@@ -1,26 +1,18 @@
 use std::collections::HashMap;
-use std::io::{self, Write};
 use std::result::Result;
 
-use failure::{err_msg, Error};
+use common::constants::BASE_URL;
+use failure::Error;
 use regex::Regex;
-use reqwest::header::{ContentLength, Cookie, Headers, Referer, SetCookie, UserAgent};
+use reqwest::header::{Cookie, Referer, SetCookie, UserAgent};
 use reqwest::{Client, Response};
-use select::document::Document;
-use select::predicate::{Attr, Class, Name, Predicate};
 
 use client::config::Config;
-use client::credentials::Credentials;
-
-pub struct Session {
-    userid: String,
-}
 
 pub struct MessengerClient {
+    pub config: Config,
     client: Client,
-    config: Config,
     cookies: HashMap<String, String>,
-    session: Option<Session>,
 }
 
 impl MessengerClient {
@@ -30,7 +22,6 @@ impl MessengerClient {
             client,
             config: Config::default(),
             cookies: HashMap::new(),
-            session: None,
         }
     }
 
@@ -40,7 +31,6 @@ impl MessengerClient {
             client,
             config: Config::default(),
             cookies: HashMap::new(),
-            Session: None,
         }
     }
 
@@ -53,7 +43,7 @@ impl MessengerClient {
                         self.cookies
                             .insert(key.trim().to_string(), value.trim().to_string());
                     }
-                    [key] => (),
+                    [_key] => (), // These can be ignored
                     _ => panic!("Could not parse cookies"),
                 };
             });
@@ -72,103 +62,41 @@ impl MessengerClient {
         cookie
     }
 
-    pub fn post() -> Result<(), Error> {
-        Ok(())
-    }
-
-    pub fn authenticate(&mut self, credentials: Credentials) -> Result<(), Error> {
-        // get login page
-        let mut resp = self.client.get(&self.config.base_url).send()?;
-        self.set_cookies(&resp);
-        let body = resp.text()?;
-
-        // get login form values
-        let document = Document::from(body.as_str());
-        let form = document
-            .find(Attr("id", "login_form"))
-            .next()
-            .expect("Could not find login_form");
-        let action = form
-            .attr("action")
-            .expect("Could not find login_form action attr");
-        let inputs = document.find(Name("input"));
-        let mut params = HashMap::new();
-        for input in inputs {
-            if input.attr("type").expect("Could not get type from input") == "hidden" {
-                let name = input.attr("name").expect("Could not get name from input");
-                let value = input.attr("value").expect("Could not get value from input");
-                params.insert(name, value);
-            }
-        }
-
-        // request login cookies
-        let request_id = find_js_field(&body, "initialRequestID");
-        let identifier = find_js_field(&body, "identifier");
-        let datr = find_js_field(&body, "_js_datr");
-        self.set_cookie("_js_datr".to_string(), datr);
-
-        let cookie_url = format!(
-            "https://www.facebook.com/login/messenger_dot_com_iframe/?redirect_uri=https%3A%2F%2Fwww.messenger.com%2Flogin%2Ffb_iframe_target%2F%3Finitial_request_id%3D{}&identifier={}&initial_request_id={}",
-            request_id,
-            identifier,
-            request_id
-        );
-
+    pub fn post(&mut self, url: &str, params: HashMap<&str, &str>) -> Result<Response, Error> {
         let user_agent = UserAgent::new(self.config.user_agent.clone());
-        let referer = Referer::new(self.config.base_url.clone());
-
+        let referer = Referer::new(BASE_URL.to_string());
         let resp = self
             .client
-            .get(&cookie_url)
+            .post(url)
             .header(user_agent.clone())
-            .header(referer.clone())
-            .send()?;
-        self.set_cookies(&resp);
-
-        let login_url = format!(
-            "{}/login/fb_iframe_target/?userid=0&initial_request_id={}",
-            self.config.base_url, request_id
-        );
-
-        let mut resp = self
-            .client
-            .get(&login_url)
-            .header(referer.clone())
-            .header(user_agent.clone())
-            .header(self.get_cookies())
-            .send()?;
-
-        self.set_cookies(&resp);
-
-        params.insert("email", &credentials.username);
-        params.insert("pass", &credentials.password);
-        params.insert("persistent", "1");
-        params.insert("login", "1");
-
-        let action_url = self.config.base_url.clone() + action;
-        let mut resp = self
-            .client
-            .post(&action_url)
-            .header(user_agent.clone())
-            .header(ContentLength(1024u64))
             .header(referer.clone())
             .header(self.get_cookies())
             .form(&params)
             .send()?;
-
         self.set_cookies(&resp);
+        Ok(resp)
+    }
 
-        let body = resp.text()?;
-        let userid = find_js_field(&body, "USER_ID");
-
-        self.session = Session { userid };
-
-        Ok(())
+    pub fn get(&mut self, url: &str) -> Result<Response, Error> {
+        let user_agent = UserAgent::new(self.config.user_agent.clone());
+        let referer = Referer::new(BASE_URL.to_string());
+        let resp = self
+            .client
+            .get(url)
+            .header(user_agent)
+            .header(referer)
+            .header(self.get_cookies())
+            .send()?;
+        self.set_cookies(&resp);
+        Ok(resp)
     }
 }
-fn find_js_field(body: &str, field: &str) -> String {
+
+pub fn find_js_field(body: &str, field: &str) -> String {
     let regex_str = format!("\"{}\"(,|:)\"(?P<match>.*?)\"", field);
     let re = Regex::new(&regex_str).unwrap();
-    let matched = re.captures(&body).expect("Cannot find js field");
+    let matched = re
+        .captures(&body)
+        .expect("Cannot find js field. Make sure authentication flow is correct.");
     matched["match"].to_string()
 }
