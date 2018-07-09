@@ -4,7 +4,7 @@ use std::result::Result;
 
 use failure::{err_msg, Error};
 use regex::Regex;
-use reqwest::header::{ContentType, Headers, Referer, SetCookie, UserAgent};
+use reqwest::header::{ContentLength, Cookie, Headers, Referer, SetCookie, UserAgent};
 use reqwest::{Client, Response};
 use select::document::Document;
 use select::predicate::{Attr, Class, Name, Predicate};
@@ -13,7 +13,6 @@ use client::config::Config;
 use client::credentials::Credentials;
 
 pub struct Session {
-    client: MessengerClient,
     userid: String,
 }
 
@@ -21,6 +20,7 @@ pub struct MessengerClient {
     client: Client,
     config: Config,
     cookies: HashMap<String, String>,
+    session: Option<Session>,
 }
 
 impl MessengerClient {
@@ -30,6 +30,7 @@ impl MessengerClient {
             client,
             config: Config::default(),
             cookies: HashMap::new(),
+            session: None,
         }
     }
 
@@ -39,15 +40,36 @@ impl MessengerClient {
             client,
             config: Config::default(),
             cookies: HashMap::new(),
+            Session: None,
         }
     }
 
     pub fn set_cookies(&mut self, resp: &Response) {
-        if resp.status().is_success() {
-            if let Some(cookies) = resp.headers().get::<SetCookie>() {
-                println!("{:?}", cookies);
-            }
+        if let Some(cookies) = resp.headers().get::<SetCookie>() {
+            let cookies_str = &cookies.0[0]; // TODO: Check if this is kosher
+            cookies_str.split(";").for_each(|cookie_str| {
+                match cookie_str.split("=").collect::<Vec<&str>>().as_slice() {
+                    [key, value] => {
+                        self.cookies
+                            .insert(key.trim().to_string(), value.trim().to_string());
+                    }
+                    [key] => (),
+                    _ => panic!("Could not parse cookies"),
+                };
+            });
         }
+    }
+
+    pub fn set_cookie(&mut self, key: String, value: String) {
+        self.cookies.insert(key, value);
+    }
+
+    pub fn get_cookies(&self) -> Cookie {
+        let mut cookie = Cookie::new();
+        for (key, value) in self.cookies.iter() {
+            cookie.append(key.clone(), value.clone());
+        }
+        cookie
     }
 
     pub fn post() -> Result<(), Error> {
@@ -55,9 +77,11 @@ impl MessengerClient {
     }
 
     pub fn authenticate(&mut self, credentials: Credentials) -> Result<(), Error> {
+        // get login page
         let mut resp = self.client.get(&self.config.base_url).send()?;
         self.set_cookies(&resp);
         let body = resp.text()?;
+
         // get login form values
         let document = Document::from(body.as_str());
         let form = document
@@ -68,12 +92,12 @@ impl MessengerClient {
             .attr("action")
             .expect("Could not find login_form action attr");
         let inputs = document.find(Name("input"));
-        let mut query = Vec::new();
+        let mut params = HashMap::new();
         for input in inputs {
             if input.attr("type").expect("Could not get type from input") == "hidden" {
                 let name = input.attr("name").expect("Could not get name from input");
                 let value = input.attr("value").expect("Could not get value from input");
-                query.push((name, value));
+                params.insert(name, value);
             }
         }
 
@@ -81,6 +105,7 @@ impl MessengerClient {
         let request_id = find_js_field(&body, "initialRequestID");
         let identifier = find_js_field(&body, "identifier");
         let datr = find_js_field(&body, "_js_datr");
+        self.set_cookie("_js_datr".to_string(), datr);
 
         let cookie_url = format!(
             "https://www.facebook.com/login/messenger_dot_com_iframe/?redirect_uri=https%3A%2F%2Fwww.messenger.com%2Flogin%2Ffb_iframe_target%2F%3Finitial_request_id%3D{}&identifier={}&initial_request_id={}",
@@ -98,7 +123,6 @@ impl MessengerClient {
             .header(user_agent.clone())
             .header(referer.clone())
             .send()?;
-
         self.set_cookies(&resp);
 
         let login_url = format!(
@@ -106,37 +130,38 @@ impl MessengerClient {
             self.config.base_url, request_id
         );
 
-        let resp = self
+        let mut resp = self
             .client
             .get(&login_url)
             .header(referer.clone())
             .header(user_agent.clone())
-            .header(SetCookie(vec![format!("_js_datr={}", datr)]))
+            .header(self.get_cookies())
             .send()?;
 
         self.set_cookies(&resp);
 
-        let mut params = HashMap::new();
-        params.insert("email", credentials.username);
-        params.insert("pass", credentials.password);
-        params.insert("persistent", "1".to_string());
-        params.insert("login", "1".to_string());
+        params.insert("email", &credentials.username);
+        params.insert("pass", &credentials.password);
+        params.insert("persistent", "1");
+        params.insert("login", "1");
 
+        let action_url = self.config.base_url.clone() + action;
         let mut resp = self
             .client
-            .post(&format!("{}/{}", self.config.base_url, action))
-            .header(ContentType::form_url_encoded())
+            .post(&action_url)
             .header(user_agent.clone())
+            .header(ContentLength(1024u64))
             .header(referer.clone())
-            .header(SetCookie(vec![format!("_js_datr={}", datr)]))
+            .header(self.get_cookies())
             .form(&params)
             .send()?;
 
         self.set_cookies(&resp);
 
         let body = resp.text()?;
-        println!("{}", body);
-        // let userid = find_js_field(&body, "USER_ID");
+        let userid = find_js_field(&body, "USER_ID");
+
+        self.session = Session { userid };
 
         Ok(())
     }
