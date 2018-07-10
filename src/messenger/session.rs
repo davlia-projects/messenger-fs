@@ -14,7 +14,7 @@ use common::constants::{BASE_URL, DTSG_TIMEOUT};
 
 pub struct Session {
     client: MessengerClient,
-    userid: Option<String>,
+    user_id: Option<String>,
     cache: Cache<String, String>,
 }
 
@@ -23,7 +23,7 @@ impl Session {
         let client = MessengerClient::new();
         let mut session = Self {
             client,
-            userid: None,
+            user_id: None,
             cache: Cache::new(),
         };
         session
@@ -88,9 +88,9 @@ impl Session {
         let mut resp = self.client.post(&action_url, params)?;
 
         let body = resp.text()?;
-        let userid = find_js_field(&body, "USER_ID");
+        let user_id = find_js_field(&body, "USER_ID");
 
-        self.userid = Some(userid);
+        self.user_id = Some(user_id);
         Ok(())
     }
 
@@ -107,19 +107,22 @@ impl Session {
         Ok(dtsg)
     }
 
-    pub fn common_params(&self) -> HashMap<String, String> {
-        let dtsg = self.get_dtsg();
+    pub fn common_params(&mut self) -> HashMap<String, String> {
+        let dtsg = self.get_dtsg().expect("Could not retrieve dstg");
         let mut params = HashMap::new();
-        params.insert("__a", "1");
-        params.insert("__af", "o");
-        params.insert("__be", "-1");
-        params.insert("__pc", "EXP1:messengerdotcom_pkg");
-        params.insert("__req", "14");
-        params.insert("__rev", "2643465");
-        params.insert("__srp_t", "1477432416");
-        params.insert("__user", self.userid);
-        params.insert("client", "mercury");
-        params.insert("fb_dtsg", dtsg);
+        params.insert("__a".to_string(), "1".to_string());
+        params.insert("__af".to_string(), "o".to_string());
+        params.insert("__be".to_string(), "-1".to_string());
+        params.insert("__pc".to_string(), "EXP1:messengerdotcom_pkg".to_string());
+        params.insert("__req".to_string(), "14".to_string());
+        params.insert("__rev".to_string(), "2643465".to_string());
+        params.insert("__srp_t".to_string(), "1477432416".to_string());
+        params.insert(
+            "__user".to_string(),
+            self.user_id.clone().expect("Not authenticated yet"),
+        );
+        params.insert("client".to_string(), "mercury".to_string());
+        params.insert("fb_dtsg".to_string(), dtsg);
         params
     }
 

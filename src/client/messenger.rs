@@ -10,6 +10,22 @@ use reqwest::{Client, Response};
 
 use client::config::Config;
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct RequestObject {
+    doc_id: String,
+    query_params: HashMap<String, String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct RequestJSON {
+    o0: RequestObject,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct GraphQLForm {
+    queries: RequestJSON,
+}
+
 pub struct MessengerClient {
     pub config: Config,
     client: Client,
@@ -92,7 +108,19 @@ impl MessengerClient {
         Ok(resp)
     }
 
-    pub fn graphql_query(&self, params: HashMap<String, String>) -> Result<(), Error> {
+    pub fn graphql_query(
+        &self,
+        doc_id: String,
+        params: HashMap<String, String>,
+    ) -> Result<(), Error> {
+        let form = GraphQLForm {
+            queries: RequestJSON {
+                o0: RequestObject {
+                    doc_id,
+                    query_params: params,
+                },
+            },
+        };
         Ok(())
     }
 }
