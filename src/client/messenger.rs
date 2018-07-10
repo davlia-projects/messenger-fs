@@ -113,14 +113,17 @@ impl MessengerClient {
         doc_id: String,
         params: HashMap<String, String>,
     ) -> Result<(), Error> {
-        let form = GraphQLForm {
-            queries: RequestJSON {
-                o0: RequestObject {
-                    doc_id,
-                    query_params: params,
-                },
+        let request = json!(RequestJSON {
+            o0: RequestObject {
+                doc_id,
+                query_params: params,
             },
-        };
+        }).to_string();
+        let form = HashMap::new();
+        form.insert("queries", request);
+        let mut resp = self.post(format!("{}/api/graphqlbatch/", BASE_URL), form)?;
+        let body = resp.text()?;
+        println!("{}", body);
         Ok(())
     }
 }

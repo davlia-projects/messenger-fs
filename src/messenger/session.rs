@@ -10,7 +10,7 @@ use client::credentials::Credentials;
 use client::messenger::find_js_field;
 use client::messenger::MessengerClient;
 use common::cache::Cache;
-use common::constants::{BASE_URL, DTSG_TIMEOUT};
+use common::constants::{BASE_URL, DTSG_TIMEOUT, THREADS_DOC};
 
 pub struct Session {
     client: MessengerClient,
@@ -126,7 +126,15 @@ impl Session {
         params
     }
 
-    pub fn threads() {}
+    pub fn threads(&self) {
+        let params = HashMap::new();
+        params.insert("limit", 100);
+        params.insert("before", "");
+        params.insert("tag", "[INBOX]");
+        params.insert("includeDeliveryReceipts", "true");
+        params.insert("includeSeqID", "false");
+        self.client.graphql_query(THREADS_DOC, params);
+    }
 
     pub fn send() {}
 }

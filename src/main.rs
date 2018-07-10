@@ -11,6 +11,7 @@ extern crate select;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
+#[macro_use]
 extern crate serde_json;
 extern crate time;
 extern crate tokio;
