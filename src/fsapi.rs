@@ -10,15 +10,16 @@ use fuse::{
 use libc::{EIO, ENFILE, ENOENT};
 use time::Timespec;
 
+use common::tree::Node;
 use messengerfs::MessengerFS;
 
 impl Filesystem for MessengerFS {
     fn getattr(&mut self, _req: &Request, ino: u64, reply: ReplyAttr) {
         println!("getattr(ino={})", ino);
-        match self.attrs.get(&ino) {
-            Some(attr) => {
+        match self.find(ino) {
+            Some(Node { entry, .. }) => {
                 let ttl = Timespec::new(1, 0);
-                reply.attr(&ttl, attr);
+                reply.attr(&ttl, &entry.attr);
             }
             None => reply.error(ENOENT),
         };
@@ -42,30 +43,29 @@ impl Filesystem for MessengerFS {
         reply: ReplyAttr,
     ) {
         println!("setattr()");
-        match self.attrs.entry(ino) {
-            Entry::Occupied(mut entry) => {
-                let entry = entry.get_mut();
+        match self.find(ino) {
+            Some(Node { entry, .. }) => {
                 let attr = FileAttr {
                     ino,
-                    blocks: entry.blocks,
-                    perm: entry.perm,
-                    nlink: entry.nlink,
-                    rdev: entry.rdev,
-                    kind: entry.kind,
-                    uid: uid.unwrap_or(entry.uid),
-                    gid: gid.unwrap_or(entry.gid),
-                    size: size.unwrap_or(entry.size),
-                    atime: atime.unwrap_or(entry.atime),
-                    mtime: mtime.unwrap_or(entry.mtime),
-                    crtime: crtime.unwrap_or(entry.crtime),
-                    ctime: chgtime.unwrap_or(entry.ctime),
-                    flags: flags.unwrap_or(entry.flags),
+                    blocks: entry.attr.blocks,
+                    perm: entry.attr.perm,
+                    nlink: entry.attr.nlink,
+                    rdev: entry.attr.rdev,
+                    kind: entry.attr.kind,
+                    uid: uid.unwrap_or(entry.attr.uid),
+                    gid: gid.unwrap_or(entry.attr.gid),
+                    size: size.unwrap_or(entry.attr.size),
+                    atime: atime.unwrap_or(entry.attr.atime),
+                    mtime: mtime.unwrap_or(entry.attr.mtime),
+                    crtime: crtime.unwrap_or(entry.attr.crtime),
+                    ctime: chgtime.unwrap_or(entry.attr.ctime),
+                    flags: flags.unwrap_or(entry.attr.flags),
                 };
-                *entry = attr;
+                entry.attr = attr;
                 let ttl = Timespec::new(1, 0);
                 reply.attr(&ttl, &attr);
             }
-            Entry::Vacant(_) => reply.error(ENOENT),
+            None => reply.error(ENOENT),
         }
     }
 
@@ -92,19 +92,26 @@ impl Filesystem for MessengerFS {
         mut reply: ReplyDirectory,
     ) {
         println!("readdir(ino={}, fh={}, offset={})", ino, fh, offset);
-        if let Some(entry) = self.find(ino) {
-            let mut entry = entry.borrow_mut();
-            let children = entry.children.get_or_insert_with(Vec::new);
+        let node = self
+            .find(ino)
+            .as_ref()
+            .map(|node| (node.parent.unwrap_or(ino), node.children.clone()));
+        if let Some((parent, children)) = node {
             if offset == 0 {
-                reply.add(ino, 0, FileType::Directory, &PathBuf::from("."));
-                reply.add(ino, 1, FileType::Directory, &PathBuf::from(".."));
-                children.iter().for_each(|child| {
-                    let child = child.borrow();
+                reply.add(ino, ino as i64, FileType::Directory, &PathBuf::from("."));
+                reply.add(
+                    parent,
+                    parent as i64,
+                    FileType::Directory,
+                    &PathBuf::from(".."),
+                );
+                children.clone().iter().for_each(|&nodeid| {
+                    let child = self.find(nodeid).expect("Child entry not found");
                     reply.add(
-                        child.inode,
-                        child.inode as i64,
-                        child.filetype,
-                        &PathBuf::from(child.name.clone()),
+                        nodeid,
+                        nodeid as i64,
+                        child.entry.filetype,
+                        &PathBuf::from(child.entry.name.clone()),
                     );
                 });
             }
@@ -117,16 +124,16 @@ impl Filesystem for MessengerFS {
     fn lookup(&mut self, _req: &Request, _parent: u64, name: &OsStr, reply: ReplyEntry) {
         println!("lookup()");
         let inode = match self.inodes.get(name.to_str().unwrap()) {
-            Some(inode) => inode,
+            Some(&inode) => inode,
             None => {
                 reply.error(ENOENT);
                 return;
             }
         };
-        match self.attrs.get(inode) {
-            Some(attr) => {
+        match self.find(inode) {
+            Some(Node { entry, .. }) => {
                 let ttl = Timespec::new(1, 0);
-                reply.entry(&ttl, attr, 0);
+                reply.entry(&ttl, &entry.attr, 0);
             }
             None => reply.error(ENOENT),
         };
@@ -146,8 +153,7 @@ impl Filesystem for MessengerFS {
             ino, fh, offset, size
         );
         match self.find(ino) {
-            Some(entry) => {
-                let entry = entry.borrow();
+            Some(Node { entry, .. }) => {
                 if let Some(ref data) = entry.data {
                     let start = min(offset as usize, data.len());
                     reply.data(&data[start..]);
@@ -186,8 +192,7 @@ impl Filesystem for MessengerFS {
         let result = self.fs_open(ino, flags);
         match result {
             Ok(fh) => reply.opened(fh, 0),
-            // Err(_) => reply.error(ENOENT),
-            Err(_) => (),
+            Err(_) => reply.error(ENOENT),
         }
     }
 
@@ -231,7 +236,7 @@ impl Filesystem for MessengerFS {
             Ok(attr) => {
                 println!("CREATING A FILE");
                 let ttl = Timespec::new(1, 0);
-                let generation = 0; // I have no idea what this is
+                let generation = 0; // TODO: Figure out what this is
                 let fh = attr.ino; // TODO: Generate unique file handles
                 reply.created(&ttl, &attr, generation, fh, 0);
             }
@@ -245,7 +250,7 @@ impl Filesystem for MessengerFS {
         match result {
             Ok(attr) => {
                 let ttl = Timespec::new(1, 0);
-                let generation = 0; // I have no idea what this is
+                let generation = 0; // TODO: Figure out what this is
                 reply.entry(&ttl, &attr, generation);
             }
             Err(_) => reply.error(ENFILE),

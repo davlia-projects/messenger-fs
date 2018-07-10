@@ -9,28 +9,34 @@ use failure::{err_msg, Error};
 use fuse::{FileAttr, FileType, Request};
 
 use common::constants::USER_DIR;
+use common::tree::{Node, Tree};
 use entry::FileSystemEntry;
 
 pub struct MessengerFS {
     pub inode: u64,
-    pub attrs: BTreeMap<u64, FileAttr>,
     pub inodes: BTreeMap<String, u64>,
-    pub fs: Rc<RefCell<Box<FileSystemEntry>>>,
+    pub fs: Tree<FileSystemEntry>,
 }
 
 impl MessengerFS {
     pub fn new() -> Self {
-        let mut attrs = BTreeMap::new();
         let mut inodes = BTreeMap::new();
-        let fs = Rc::new(RefCell::new(Box::new(FileSystemEntry::new(
-            "/".to_string(),
-            FileType::Directory,
-        ))));
+        let mut fs = Tree::new();
+
+        Self {
+            inode: 1,
+            inodes,
+            fs,
+        }
+    }
+
+    pub fn create_root(&mut self) {
         let ts = time::now().to_timespec();
+        let inode = self.get_next_inode();
         let attr = FileAttr {
-            ino: 1,
+            ino: inode,
             size: 0,
-            blocks: 123,
+            blocks: 0,
             atime: ts,
             mtime: ts,
             ctime: ts,
@@ -43,14 +49,9 @@ impl MessengerFS {
             rdev: 0,
             flags: 0,
         };
-        attrs.insert(1, attr);
-        inodes.insert("/".to_owned(), 1);
-        Self {
-            inode: 2,
-            attrs,
-            inodes,
-            fs,
-        }
+        let root = FileSystemEntry::new("/".to_string(), FileType::Directory, attr);
+        self.inodes.insert("/".to_owned(), 1);
+        self.fs.add(None, inode, root);
     }
 
     pub fn get_next_inode(&mut self) -> u64 {
@@ -68,19 +69,10 @@ impl MessengerFS {
         _mode: u32,
         _flags: u32,
     ) -> Result<FileAttr, Error> {
-        let entry = self.find(parent).ok_or(err_msg("Could not find inode"))?;
-        let mut entry = entry.borrow_mut();
+        // add in new inode
         let inode = self.get_next_inode();
-        let new_entry = FileSystemEntry::with_inode(
-            name.to_str().expect("Could not parse os str").to_owned(),
-            FileType::RegularFile,
-            inode,
-        );
-        entry
-            .children
-            .get_or_insert_with(Vec::new)
-            .push(Rc::new(RefCell::new(Box::new(new_entry))));
         let ts = time::now().to_timespec();
+        let name = name.to_str().expect("Could not parse os str");
         let attr = FileAttr {
             ino: inode,
             size: 0,
@@ -97,9 +89,11 @@ impl MessengerFS {
             rdev: 0,
             flags: 0,
         };
-        let name = name.to_str().expect("Could not parse os str");
+        let new_entry =
+            FileSystemEntry::with_inode(name.to_owned(), FileType::RegularFile, inode, attr);
+        self.fs.add(Some(parent), inode, new_entry);
+
         self.inodes.insert(name.to_owned(), inode);
-        self.attrs.insert(inode, attr.clone());
         Ok(attr)
     }
 
@@ -115,56 +109,32 @@ impl MessengerFS {
         data: &[u8],
         _flags: u32,
     ) -> Result<u32, Error> {
-        let entry = self.find(ino).ok_or(err_msg("Could not find inode"))?;
-        let mut entry = entry.borrow_mut();
+        let node = self.find(ino).ok_or(err_msg("Could not find inode"))?;
         let offset = offset as usize; // TODO: Support negative wrap-around indexing
         let add_size = data.len() as usize;
         let required_size = offset + add_size;
-        let existing_data = entry
+        let existing_data = node
+            .entry
             .data
             .get_or_insert_with(|| Vec::with_capacity(required_size));
         existing_data.resize(required_size, 0);
         existing_data[offset..].copy_from_slice(&data[..]);
-        let attr = self.attrs.get_mut(&ino).expect("Could not get mut attr");
-        attr.size = existing_data.len() as u64;
+        node.entry.attr.size = existing_data.len() as u64;
         Ok(add_size as u32)
     }
 
     pub fn fs_delete(&mut self, parent: u64, name: &OsStr) -> Result<(), Error> {
-        let name = name.to_str().expect("Could not read os str"); // TODO: Handle
-        if let Some(inode) = self.inodes.get(name) {
-            self.attrs.remove(inode);
+        let name = name.to_str().expect("Could not parse os str").to_string();
+        match self.inodes.get(&name) {
+            Some(&idx) => {
+                self.fs.delete(Some(parent), idx);
+                Ok(())
+            }
+            None => Err(err_msg(format!("Could not find node with name {}", name))),
         }
-        self.inodes.remove(name);
-        if let Some(entry) = self.find(parent) {
-            let mut entry = entry.borrow_mut();
-            entry
-                .children
-                .as_mut()
-                .expect("parent should have children")
-                .retain(|child| child.borrow().name != *name)
-        } else {
-            // TODO: Handle
-            panic!("Could not find parent!");
-        }
-        Ok(())
     }
 
-    pub fn find(&self, inode: u64) -> Option<Rc<RefCell<Box<FileSystemEntry>>>> {
-        let mut stack = VecDeque::new();
-        stack.push_back(self.fs.clone());
-        while !stack.is_empty() {
-            let entry = stack.pop_front().unwrap();
-            if entry.borrow().inode == inode {
-                return Some(entry);
-            }
-            let entry = entry.borrow();
-            if let Some(children) = entry.children.clone() {
-                for entry in children {
-                    stack.push_back(entry);
-                }
-            }
-        }
-        None
+    pub fn find(&mut self, inode: u64) -> Option<&mut Node<FileSystemEntry>> {
+        self.fs.get(inode) // TODO: Is this kosher for 32-bit systems?
     }
 }

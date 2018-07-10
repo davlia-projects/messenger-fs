@@ -27,7 +27,7 @@ mod messengerfs;
 use std::ffi::OsStr;
 use std::fs;
 
-use client::credentials::Credentials;
+use messenger::credentials::Credentials;
 use messenger::session::Session;
 use messengerfs::MessengerFS;
 
@@ -35,7 +35,6 @@ fn main() {
     let credentials = Credentials::from_env();
 
     let mut session = Session::new(credentials);
-    session.threads();
 
     let fs = MessengerFS::new();
     fs::create_dir_all("./fs/").expect("Could not create mount directory");

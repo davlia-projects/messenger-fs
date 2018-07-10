@@ -1,4 +1,4 @@
-use fuse::FileType;
+use fuse::{FileAttr, FileType, Request};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -6,27 +6,27 @@ pub struct FileSystemEntry {
     pub inode: u64,
     pub name: String,
     pub filetype: FileType,
+    pub attr: FileAttr,
     pub data: Option<Vec<u8>>,
-    pub children: Option<Vec<Rc<RefCell<Box<FileSystemEntry>>>>>,
 }
 
 impl FileSystemEntry {
-    pub fn new(name: String, filetype: FileType) -> Self {
+    pub fn new(name: String, filetype: FileType, attr: FileAttr) -> Self {
         Self {
             inode: 1,
             data: None,
-            children: None,
             name,
+            attr,
             filetype,
         }
     }
 
-    pub fn with_inode(name: String, filetype: FileType, inode: u64) -> Self {
+    pub fn with_inode(name: String, filetype: FileType, inode: u64, attr: FileAttr) -> Self {
         Self {
             inode,
             data: None,
-            children: None,
             filetype,
+            attr,
             name,
         }
     }
