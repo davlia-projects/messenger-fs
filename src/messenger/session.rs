@@ -10,7 +10,7 @@ use client::credentials::Credentials;
 use client::messenger::find_js_field;
 use client::messenger::MessengerClient;
 use common::cache::Cache;
-use common::constants::{BASE_URL, DTSG_TIMEOUT, THREADS_DOC};
+use common::constants::{ACTION_LOG_DOC, BASE_URL, DTSG_TIMEOUT, THREADS_DOC};
 
 pub struct Session {
     client: MessengerClient,
@@ -126,15 +126,30 @@ impl Session {
         params
     }
 
-    pub fn threads(&self) {
-        let params = HashMap::new();
-        params.insert("limit", 100);
-        params.insert("before", "");
-        params.insert("tag", "[INBOX]");
-        params.insert("includeDeliveryReceipts", "true");
-        params.insert("includeSeqID", "false");
-        self.client.graphql_query(THREADS_DOC, params);
+    pub fn threads(&mut self) -> Result<(), Error> {
+        let params = ThreadRequest {
+            limit: 100,
+            before: None,
+            tags: vec!["INBOX".to_string()],
+            include_delivery_receipts: true,
+            include_seq_id: false,
+        };
+        let mut resp = self.client.graphql_query(THREADS_DOC, params)?;
+        let body = resp.text()?;
+        println!("{}", body);
+        Ok(())
     }
 
     pub fn send() {}
+}
+
+#[derive(Serialize)]
+pub struct ThreadRequest {
+    limit: i32,
+    before: Option<String>,
+    tags: Vec<String>,
+    #[serde(rename = "includeDeliveryReceipts")]
+    include_delivery_receipts: bool,
+    #[serde(rename = "includeSeqID")]
+    include_seq_id: bool,
 }

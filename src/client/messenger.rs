@@ -7,23 +7,25 @@ use failure::Error;
 use regex::Regex;
 use reqwest::header::{Cookie, Referer, SetCookie, UserAgent};
 use reqwest::{Client, Response};
+use serde::ser::Serialize;
 
 use client::config::Config;
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct RequestObject {
+#[derive(Serialize, Clone, Debug)]
+pub struct RequestObject<T>
+where
+    T: Serialize,
+{
     doc_id: String,
-    query_params: HashMap<String, String>,
+    query_params: T,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct RequestJSON {
-    o0: RequestObject,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct GraphQLForm {
-    queries: RequestJSON,
+#[derive(Serialize, Clone, Debug)]
+pub struct RequestJSON<T>
+where
+    T: Serialize,
+{
+    o0: RequestObject<T>,
 }
 
 pub struct MessengerClient {
@@ -108,23 +110,20 @@ impl MessengerClient {
         Ok(resp)
     }
 
-    pub fn graphql_query(
-        &self,
-        doc_id: String,
-        params: HashMap<String, String>,
-    ) -> Result<(), Error> {
+    pub fn graphql_query<T>(&mut self, doc_id: &str, params: T) -> Result<Response, Error>
+    where
+        T: Serialize,
+    {
         let request = json!(RequestJSON {
             o0: RequestObject {
-                doc_id,
+                doc_id: doc_id.to_string(),
                 query_params: params,
             },
         }).to_string();
-        let form = HashMap::new();
-        form.insert("queries", request);
-        let mut resp = self.post(format!("{}/api/graphqlbatch/", BASE_URL), form)?;
-        let body = resp.text()?;
-        println!("{}", body);
-        Ok(())
+        let mut form: HashMap<&str, &str> = HashMap::new();
+        form.insert("queries", &request);
+        let resp = self.post(&format!("{}/api/graphqlbatch/", BASE_URL), form)?;
+        Ok(resp)
     }
 }
 

@@ -1,5 +1,6 @@
 #![feature(box_syntax, box_patterns)]
 #![feature(extern_prelude)]
+#![feature(custom_attribute)]
 extern crate failure;
 extern crate fuse;
 extern crate hyper;
@@ -34,6 +35,7 @@ fn main() {
     let credentials = Credentials::from_env();
 
     let mut session = Session::new(credentials);
+    session.threads();
 
     let fs = MessengerFS::new();
     fs::create_dir_all("./fs/").expect("Could not create mount directory");
