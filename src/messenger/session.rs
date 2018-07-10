@@ -1,4 +1,6 @@
+use std::collections::hash_map::{Entry, OccupiedEntry, VacantEntry};
 use std::collections::HashMap;
+use std::time::Duration;
 
 use failure::Error;
 use select::document::Document;
@@ -7,11 +9,13 @@ use select::predicate::{Attr, Name};
 use client::credentials::Credentials;
 use client::messenger::find_js_field;
 use client::messenger::MessengerClient;
-use common::constants::BASE_URL;
+use common::cache::Cache;
+use common::constants::{BASE_URL, DTSG_TIMEOUT};
 
 pub struct Session {
     client: MessengerClient,
     userid: Option<String>,
+    cache: Cache<String, String>,
 }
 
 impl Session {
@@ -20,6 +24,7 @@ impl Session {
         let mut session = Self {
             client,
             userid: None,
+            cache: Cache::new(),
         };
         session
             .authenticate(credentials)
@@ -87,6 +92,35 @@ impl Session {
 
         self.userid = Some(userid);
         Ok(())
+    }
+
+    pub fn get_dtsg(&mut self) -> Result<String, Error> {
+        let ttl = Duration::new(DTSG_TIMEOUT, 0);
+        let mut cache = self.cache.clone();
+        let dtsg = cache.get_or_fetch("dtsg".to_string(), Some(ttl), || {
+            let mut resp = self.client.get(BASE_URL)?;
+            let body = resp.text()?;
+            let field = "DTSGInitialData\",[],{\"token";
+            let dtsg = find_js_field(&body, field);
+            Ok(dtsg)
+        })?;
+        Ok(dtsg)
+    }
+
+    pub fn common_params(&self) -> HashMap<String, String> {
+        let dtsg = self.get_dtsg();
+        let mut params = HashMap::new();
+        params.insert("__a", "1");
+        params.insert("__af", "o");
+        params.insert("__be", "-1");
+        params.insert("__pc", "EXP1:messengerdotcom_pkg");
+        params.insert("__req", "14");
+        params.insert("__rev", "2643465");
+        params.insert("__srp_t", "1477432416");
+        params.insert("__user", self.userid);
+        params.insert("client", "mercury");
+        params.insert("fb_dtsg", dtsg);
+        params
     }
 
     pub fn threads() {}

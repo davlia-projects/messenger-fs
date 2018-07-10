@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use std::result::Result;
+use std::time::{Duration, Instant};
 
-use common::constants::BASE_URL;
+use common::constants::{BASE_URL, DTSG_TIMEOUT};
 use failure::Error;
 use regex::Regex;
 use reqwest::header::{Cookie, Referer, SetCookie, UserAgent};
@@ -89,6 +90,10 @@ impl MessengerClient {
             .send()?;
         self.set_cookies(&resp);
         Ok(resp)
+    }
+
+    pub fn graphql_query(&self, params: HashMap<String, String>) -> Result<(), Error> {
+        Ok(())
     }
 }
 
