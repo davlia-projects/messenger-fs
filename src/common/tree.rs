@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 type NodeIdx = u64;
 
+#[derive(Serialize, Deserialize)]
 pub struct Node<T> {
     pub children: Vec<NodeIdx>,
     pub parent: Option<NodeIdx>,
@@ -18,6 +19,7 @@ impl<T> Node<T> {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct Tree<T> {
     arena: HashMap<NodeIdx, Node<T>>,
 }
@@ -38,7 +40,11 @@ impl<T> Tree<T> {
         }
     }
 
-    pub fn get(&mut self, idx: NodeIdx) -> Option<&mut Node<T>> {
+    pub fn get(&self, idx: NodeIdx) -> Option<&Node<T>> {
+        self.arena.get(&idx)
+    }
+
+    pub fn get_mut(&mut self, idx: NodeIdx) -> Option<&mut Node<T>> {
         self.arena.get_mut(&idx)
     }
 

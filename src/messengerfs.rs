@@ -11,26 +11,38 @@ use fuse::{FileAttr, FileType, Request};
 use common::constants::USER_DIR;
 use common::tree::{Node, Tree};
 use entry::FileSystemEntry;
+use messenger::credentials::Credentials;
+use messenger::session::Session;
 
 pub struct MessengerFS {
     pub inode: u64,
     pub inodes: BTreeMap<String, u64>,
     pub fs: Tree<FileSystemEntry>,
+    pub size: usize,
+    session: Session,
 }
 
 impl MessengerFS {
     pub fn new() -> Self {
-        let mut inodes = BTreeMap::new();
-        let mut fs = Tree::new();
+        let inodes = BTreeMap::new();
+        let fs = Tree::new();
+        let credentials = Credentials::from_env();
+        let session = Session::new(credentials);
 
-        Self {
+        let mut fs = Self {
             inode: 1,
             inodes,
             fs,
-        }
+            size: 0,
+            session,
+        };
+
+        fs.create_root();
+        fs
     }
 
     pub fn create_root(&mut self) {
+        // TODO: Consolidate with fs_create
         let ts = time::now().to_timespec();
         let inode = self.get_next_inode();
         let attr = FileAttr {
@@ -49,7 +61,7 @@ impl MessengerFS {
             rdev: 0,
             flags: 0,
         };
-        let root = FileSystemEntry::new("/".to_string(), FileType::Directory, attr);
+        let root = FileSystemEntry::new("/".to_string(), attr);
         self.inodes.insert("/".to_owned(), 1);
         self.fs.add(None, inode, root);
     }
@@ -89,8 +101,7 @@ impl MessengerFS {
             rdev: 0,
             flags: 0,
         };
-        let new_entry =
-            FileSystemEntry::with_inode(name.to_owned(), FileType::RegularFile, inode, attr);
+        let new_entry = FileSystemEntry::new(name.to_owned(), attr);
         self.fs.add(Some(parent), inode, new_entry);
 
         self.inodes.insert(name.to_owned(), inode);
@@ -109,17 +120,21 @@ impl MessengerFS {
         data: &[u8],
         _flags: u32,
     ) -> Result<u32, Error> {
-        let node = self.find(ino).ok_or(err_msg("Could not find inode"))?;
-        let offset = offset as usize; // TODO: Support negative wrap-around indexing
-        let add_size = data.len() as usize;
-        let required_size = offset + add_size;
-        let existing_data = node
-            .entry
-            .data
-            .get_or_insert_with(|| Vec::with_capacity(required_size));
-        existing_data.resize(required_size, 0);
-        existing_data[offset..].copy_from_slice(&data[..]);
-        node.entry.attr.size = existing_data.len() as u64;
+        let add_size = {
+            let node = self.find(ino).ok_or(err_msg("Could not find inode"))?;
+            let offset = offset as usize; // TODO: Support negative wrap-around indexing
+            let add_size = data.len() as usize;
+            let required_size = offset + add_size;
+            let existing_data = node
+                .entry
+                .data
+                .get_or_insert_with(|| Vec::with_capacity(required_size));
+            existing_data.resize(required_size, 0);
+            existing_data[offset..].copy_from_slice(&data[..]);
+            node.entry.attr.size = existing_data.len() as u64;
+            add_size
+        };
+        self.update_size(add_size);
         Ok(add_size as u32)
     }
 
@@ -134,7 +149,26 @@ impl MessengerFS {
         }
     }
 
+    pub fn serialize(&self) -> String {
+        json!(self.fs).to_string()
+    }
+
+    pub fn fs_flush(&mut self) -> Result<(), Error> {
+        let serialized = self.serialize();
+        self.session.send_myself(serialized)
+    }
+
+    pub fn restore(&mut self) -> Result<(), Error> {
+        let serialized = self.session.get_latest_message()?;
+        self.fs = serde_json::from_str(&serialized)?;
+        Ok(())
+    }
+
     pub fn find(&mut self, inode: u64) -> Option<&mut Node<FileSystemEntry>> {
-        self.fs.get(inode) // TODO: Is this kosher for 32-bit systems?
+        self.fs.get_mut(inode) // TODO: Is this kosher for 32-bit systems?
+    }
+
+    pub fn update_size(&mut self, inc: usize) {
+        self.size += inc;
     }
 }

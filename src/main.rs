@@ -32,10 +32,6 @@ use messenger::session::Session;
 use messengerfs::MessengerFS;
 
 fn main() {
-    let credentials = Credentials::from_env();
-
-    let mut session = Session::new(credentials);
-
     let fs = MessengerFS::new();
     fs::create_dir_all("./fs/").expect("Could not create mount directory");
     let options = ["-o", "noappledouble", "allow_other"]

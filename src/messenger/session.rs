@@ -34,4 +34,12 @@ impl Session {
     pub fn authenticate(&mut self, credentials: Credentials) -> Result<(), Error> {
         Ok(())
     }
+
+    pub fn send_myself(&mut self, message: String) -> Result<(), Error> {
+        Ok(())
+    }
+
+    pub fn get_latest_message(&mut self) -> Result<String, Error> {
+        Ok("".to_string())
+    }
 }

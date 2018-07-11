@@ -11,6 +11,7 @@ use libc::{EIO, ENFILE, ENOENT};
 use time::Timespec;
 
 use common::tree::Node;
+use entry::EncodeFileAttr;
 use messengerfs::MessengerFS;
 
 impl Filesystem for MessengerFS {
@@ -19,7 +20,7 @@ impl Filesystem for MessengerFS {
         match self.find(ino) {
             Some(Node { entry, .. }) => {
                 let ttl = Timespec::new(1, 0);
-                reply.attr(&ttl, &entry.attr);
+                reply.attr(&ttl, &entry.attr.unmarshal());
             }
             None => reply.error(ENOENT),
         };
@@ -45,23 +46,24 @@ impl Filesystem for MessengerFS {
         println!("setattr()");
         match self.find(ino) {
             Some(Node { entry, .. }) => {
+                let attr = entry.attr.unmarshal();
                 let attr = FileAttr {
                     ino,
-                    blocks: entry.attr.blocks,
-                    perm: entry.attr.perm,
-                    nlink: entry.attr.nlink,
-                    rdev: entry.attr.rdev,
-                    kind: entry.attr.kind,
-                    uid: uid.unwrap_or(entry.attr.uid),
-                    gid: gid.unwrap_or(entry.attr.gid),
-                    size: size.unwrap_or(entry.attr.size),
-                    atime: atime.unwrap_or(entry.attr.atime),
-                    mtime: mtime.unwrap_or(entry.attr.mtime),
-                    crtime: crtime.unwrap_or(entry.attr.crtime),
-                    ctime: chgtime.unwrap_or(entry.attr.ctime),
-                    flags: flags.unwrap_or(entry.attr.flags),
+                    blocks: attr.blocks,
+                    perm: attr.perm,
+                    nlink: attr.nlink,
+                    rdev: attr.rdev,
+                    kind: attr.kind,
+                    uid: uid.unwrap_or(attr.uid),
+                    gid: gid.unwrap_or(attr.gid),
+                    size: size.unwrap_or(attr.size),
+                    atime: atime.unwrap_or(attr.atime),
+                    mtime: mtime.unwrap_or(attr.mtime),
+                    crtime: crtime.unwrap_or(attr.crtime),
+                    ctime: chgtime.unwrap_or(attr.ctime),
+                    flags: flags.unwrap_or(attr.flags),
                 };
-                entry.attr = attr;
+                entry.attr = EncodeFileAttr::marshal(attr);
                 let ttl = Timespec::new(1, 0);
                 reply.attr(&ttl, &attr);
             }
@@ -110,7 +112,7 @@ impl Filesystem for MessengerFS {
                     reply.add(
                         nodeid,
                         nodeid as i64,
-                        child.entry.filetype,
+                        child.entry.attr.kind.unmarshal(),
                         &PathBuf::from(child.entry.name.clone()),
                     );
                 });
@@ -133,7 +135,7 @@ impl Filesystem for MessengerFS {
         match self.find(inode) {
             Some(Node { entry, .. }) => {
                 let ttl = Timespec::new(1, 0);
-                reply.entry(&ttl, &entry.attr, 0);
+                reply.entry(&ttl, &entry.attr.unmarshal(), 0);
             }
             None => reply.error(ENOENT),
         };
