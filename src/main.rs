@@ -1,14 +1,13 @@
 #![feature(box_syntax, box_patterns)]
 #![feature(extern_prelude)]
 #![feature(custom_attribute)]
+
 extern crate failure;
 extern crate fuse;
 extern crate hyper;
 extern crate hyper_tls;
 extern crate libc;
-extern crate regex;
 extern crate reqwest;
-extern crate select;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
@@ -16,8 +15,10 @@ extern crate serde_derive;
 extern crate serde_json;
 extern crate time;
 extern crate tokio;
+#[macro_use]
+extern crate jsonrpc_client_core;
+extern crate jsonrpc_client_http;
 
-mod client;
 mod common;
 mod entry;
 mod fsapi;

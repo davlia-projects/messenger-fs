@@ -1,5 +1,6 @@
 use std::env;
 
+#[derive(Serialize)]
 pub struct Credentials {
     pub username: String,
     pub password: String,

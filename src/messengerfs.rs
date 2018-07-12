@@ -155,7 +155,7 @@ impl MessengerFS {
 
     pub fn fs_flush(&mut self) -> Result<(), Error> {
         let serialized = self.serialize();
-        self.session.send_myself(serialized)
+        self.session.message(serialized, None)
     }
 
     pub fn restore(&mut self) -> Result<(), Error> {
