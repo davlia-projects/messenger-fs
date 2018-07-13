@@ -34,25 +34,25 @@ pub enum EncodeFileType {
 impl EncodeFileType {
     pub fn marshal(filetype: FileType) -> Self {
         match filetype {
-            Directory => EncodeFileType::Directory,
-            RegularFile => EncodeFileType::RegularFile,
-            NamedPipe => EncodeFileType::NamedPipe,
-            CharDevice => EncodeFileType::CharDevice,
-            BlockDevice => EncodeFileType::BlockDevice,
-            Symlink => EncodeFileType::Symlink,
-            Socket => EncodeFileType::Socket,
+            FileType::Directory => EncodeFileType::Directory,
+            FileType::RegularFile => EncodeFileType::RegularFile,
+            FileType::NamedPipe => EncodeFileType::NamedPipe,
+            FileType::CharDevice => EncodeFileType::CharDevice,
+            FileType::BlockDevice => EncodeFileType::BlockDevice,
+            FileType::Symlink => EncodeFileType::Symlink,
+            FileType::Socket => EncodeFileType::Socket,
         }
     }
 
     pub fn unmarshal(&self) -> FileType {
         match self {
-            Directory => FileType::Directory,
-            RegularFile => FileType::RegularFile,
-            NamedPipe => FileType::NamedPipe,
-            CharDevice => FileType::CharDevice,
-            BlockDevice => FileType::BlockDevice,
-            Symlink => FileType::Symlink,
-            Socket => FileType::Socket,
+            EncodeFileType::Directory => FileType::Directory,
+            EncodeFileType::RegularFile => FileType::RegularFile,
+            EncodeFileType::NamedPipe => FileType::NamedPipe,
+            EncodeFileType::CharDevice => FileType::CharDevice,
+            EncodeFileType::BlockDevice => FileType::BlockDevice,
+            EncodeFileType::Symlink => FileType::Symlink,
+            EncodeFileType::Socket => FileType::Socket,
         }
     }
 }

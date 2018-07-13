@@ -12,15 +12,37 @@ use messenger::credentials::Credentials;
 jsonrpc_client!(pub struct MessengerClient{
     pub fn ping(&mut self, msg: &str) -> RpcRequest<String>;
     pub fn authenticate(&mut self, credentials: Credentials) -> RpcRequest<String>;
-    pub fn user_info(&mut self, fbid: String) -> RpcRequest<String>;
+    pub fn my_fbid(&mut self) -> RpcRequest<String>;
+    pub fn user_info(&mut self, fbid: String) -> RpcRequest<User>;
     pub fn message(&mut self, message: String, thread_id: String) -> RpcRequest<String>;
     pub fn attachment(&mut self, attachment: String, thread_id: String) -> RpcRequest<String>;
     pub fn search(&mut self, name: String) -> RpcRequest<String>;
+    pub fn history(&mut self, thread_id: String, amount: u64, timestamp: String) -> RpcRequest<String>;
 });
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct User {
+    name: String,
+    #[serde(rename = "firstName")]
+    first_name: String,
+    vanity: String,
+    #[serde(rename = "thumbSrc")]
+    thumb_src: String,
+    #[serde(rename = "profileUrl")]
+    profile_url: String,
+    gender: i32,
+    #[serde(rename = "type")]
+    utype: String,
+    #[serde(rename = "isFriend")]
+    is_friend: bool,
+    #[serde(rename = "isBirthday")]
+    is_birthday: bool,
+}
 
 pub struct Session {
     client: MessengerClient<HttpHandle>,
-    user_id: Option<String>,
+    user: Option<User>,
+    fbid: Option<String>,
     cache: Cache<String, String>,
 }
 
@@ -37,7 +59,8 @@ impl Session {
         let client = MessengerClient::new(handle);
         let mut session = Self {
             client,
-            user_id: None,
+            user: None,
+            fbid: None,
             cache: Cache::new(),
         };
         session
@@ -47,8 +70,12 @@ impl Session {
         session
     }
 
-    fn get_self_thread(&mut self) -> Result<String, Error> {
-        Ok(("".to_owned()))
+    fn get_self_thread_id(&mut self) -> Result<String, Error> {
+        let client = &mut self.client;
+        let fbid = self
+            .fbid
+            .get_or_insert_with(|| client.my_fbid().call().unwrap());
+        Ok(fbid.to_string())
     }
 
     pub fn authenticate(&mut self, credentials: Credentials) -> Result<(), Error> {
@@ -64,7 +91,7 @@ impl Session {
     pub fn message(&mut self, message: String, thread_id: Option<String>) -> Result<(), Error> {
         let thread_id = match thread_id {
             Some(thread_id) => thread_id,
-            None => self.get_self_thread()?,
+            None => self.get_self_thread_id()?,
         };
         self.client.message(message, thread_id).call();
         Ok(())
@@ -77,14 +104,27 @@ impl Session {
     ) -> Result<(), Error> {
         let thread_id = match thread_id {
             Some(thread_id) => thread_id,
-            None => self.get_self_thread()?,
+            None => self.get_self_thread_id()?,
         };
-        self.client.attachment(attachment, thread_id).call();
+        let resp = self
+            .client
+            .attachment(attachment, thread_id)
+            .call()
+            .unwrap();
         Ok(())
     }
 
-    pub fn search(&mut self, name: String) -> Result<(), Error> {
-        self.client.search(name).call();
+    pub fn history(
+        &mut self,
+        thread_id: Option<String>,
+        amount: u64,
+        timestamp: String,
+    ) -> Result<(), Error> {
+        let thread_id = match thread_id {
+            Some(thread_id) => thread_id,
+            None => self.get_self_thread_id()?,
+        };
+        self.client.history(thread_id, amount, timestamp).call();
         Ok(())
     }
 

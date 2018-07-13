@@ -236,7 +236,6 @@ impl Filesystem for MessengerFS {
         let result = self.fs_create(req, parent, name, FileType::RegularFile, 0, 0);
         match result {
             Ok(attr) => {
-                println!("CREATING A FILE");
                 let ttl = Timespec::new(1, 0);
                 let generation = 0; // TODO: Figure out what this is
                 let fh = attr.ino; // TODO: Generate unique file handles

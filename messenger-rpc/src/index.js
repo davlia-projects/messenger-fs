@@ -1,59 +1,95 @@
+const fs = require('fs');
 const login = require('facebook-chat-api');
 const rpc = require('jayson');
+const streamifier = require('streamifier');
 
 let messengerApi;
 
 const server = rpc.server({
     authenticate: (args, callback) => {
-        console.log("login()");
+        const {
+            username: email,
+            password
+        } = args[0];
+        if (messengerApi !== undefined && messengerApi !== null) {
+            callback(null, "Already logged in");
+            return;
+        }
         login({
-            email: args[0],
-            password: args[1]
+            email,
+            password,
         }, (err, api) => {
             if (err) {
-                callback("Login failed");
+                callback(null, "Login failed");
             } else {
+                fs.writeFileSync('appstate.json', JSON.stringify(api.getAppState()));
                 messengerApi = api;
-                callback("Login success");
+                callback(null, "Login success");
             }
         });
+    },
+    my_fbid: (args, callback) => {
+        console.log("my_fbid()");
+        if (messengerApi === undefined || messengerApi === null) {
+            callback(null, "Login first");
+        }
+        callback(null, messengerApi.getCurrentUserID());
     },
     user_info: (args, callback) => {
         console.log("user_info()");
         if (messengerApi === undefined || messengerApi === null) {
-            callback("Login first");
+            callback(null, "Login first");
         }
-        callback(0);
+        const fbid = args[0]
+        messengerApi.getUserInfo([fbid], (err, obj) => {
+            callback(null, obj[fbid]);
+        })
     },
     message: (args, callback) => {
         console.log("message()");
         if (messengerApi === undefined || messengerApi === null) {
-            callback("Login first");
+            callback(null, "Login first");
         }
-        callback(0);
+        let [message, threadId] = args;
+        messengerApi.sendMessage(message, threadId, (err, obj) => {
+            callback(null, "sent message");
+        })
     },
     attachment: (args, callback) => {
         console.log("attachment()");
         if (messengerApi === undefined || messengerApi === null) {
-            callback("Login first");
+            callback(null, "Login first");
         }
-        callback(0);
+        const [attachment, threadId] = args;
+        const buf = Buffer.from(attachment, "ascii");
+        const block = streamifier.createReadStream(buf);
+        block.path = 'block';
+        const msg = {
+            body: "attachment",
+            attachment: block,
+        };
+        console.log(args[0], args[1]);
+        messengerApi.sendMessage(msg, threadId, (err, obj) => {
+            callback(null, "attachment sent");
+        });
     },
     search: (args, callback) => {
-        console.log("search()");
+        console.log("search()", args);
         if (messengerApi === undefined || messengerApi === null) {
-            callback("Login first");
+            callback(null, "Login first");
         }
-        callback(0);
+        messengerApi.searchForThread(args[0], (err, obj) => {
+            console.log(obj);
+            callback(null, "response");
+        });
     },
     history: (args, callback) => {
         console.log("history()");
         if (messengerApi === undefined || messengerApi === null) {
-            callback("Login first");
+            callback(null, "Login first");
         }
-        callback(0);
+        callback(null, "response");
     },
-
 });
 
 server.http().listen(5000, () => {

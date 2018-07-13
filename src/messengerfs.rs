@@ -135,6 +135,7 @@ impl MessengerFS {
             add_size
         };
         self.update_size(add_size);
+        self.fs_flush()?;
         Ok(add_size as u32)
     }
 
@@ -155,7 +156,7 @@ impl MessengerFS {
 
     pub fn fs_flush(&mut self) -> Result<(), Error> {
         let serialized = self.serialize();
-        self.session.message(serialized, None)
+        self.session.attachment(serialized, None)
     }
 
     pub fn restore(&mut self) -> Result<(), Error> {

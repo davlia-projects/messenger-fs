@@ -27,9 +27,8 @@ mod messengerfs;
 
 use std::ffi::OsStr;
 use std::fs;
+use std::path::PathBuf;
 
-use messenger::credentials::Credentials;
-use messenger::session::Session;
 use messengerfs::MessengerFS;
 
 fn main() {
@@ -39,5 +38,5 @@ fn main() {
         .iter()
         .map(|o| o.as_ref())
         .collect::<Vec<&OsStr>>();
-    // fuse::mount(fs, &PathBuf::from("./fs/"), &options).expect("Could not mount filesystem");
+    fuse::mount(fs, &PathBuf::from("./fs/"), &options).expect("Could not mount filesystem");
 }

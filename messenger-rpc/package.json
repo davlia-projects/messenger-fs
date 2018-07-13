@@ -13,6 +13,7 @@
     "facebook-chat-api": "^1.6.0",
     "install": "^0.12.1",
     "jayson": "^2.0.6",
-    "npm": "^6.1.0"
+    "npm": "^6.1.0",
+    "streamifier": "^0.1.1"
   }
 }
