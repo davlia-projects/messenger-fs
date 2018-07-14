@@ -1,5 +1,4 @@
 use std::cmp::min;
-use std::collections::btree_map::Entry;
 use std::ffi::OsStr;
 use std::path::PathBuf;
 

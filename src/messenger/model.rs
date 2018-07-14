@@ -1,58 +1,58 @@
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct User {
-    name: String,
+    pub name: String,
     #[serde(rename = "firstName")]
-    first_name: String,
-    vanity: String,
+    pub first_name: String,
+    pub vanity: String,
     #[serde(rename = "thumbSrc")]
-    thumb_src: String,
+    pub thumb_src: String,
     #[serde(rename = "profileUrl")]
-    profile_url: String,
-    gender: i32,
+    pub profile_url: String,
+    pub gender: i32,
     #[serde(rename = "type")]
-    utype: String,
+    pub utype: String,
     #[serde(rename = "isFriend")]
-    is_friend: bool,
+    pub is_friend: bool,
     #[serde(rename = "isBirthday")]
-    is_birthday: bool,
+    pub is_birthday: bool,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Message {
     #[serde(rename = "type")]
-    mtype: String,
-    attachments: Vec<Attachment>,
-    body: String,
+    pub mtype: String,
+    pub attachments: Vec<Attachment>,
+    pub body: String,
     #[serde(rename = "isGroup")]
-    is_group: bool,
+    pub is_group: bool,
     #[serde(rename = "messageID")]
-    message_id: String,
+    pub message_id: String,
     #[serde(rename = "senderID")]
-    sender_id: String,
+    pub sender_id: String,
     #[serde(rename = "threadID")]
-    thread_id: String,
-    timestamp: String,
+    pub thread_id: String,
+    pub timestamp: String,
     #[serde(rename = "isUnread")]
-    is_unread: bool,
+    pub is_unread: bool,
     #[serde(rename = "isSponsored")]
-    is_sponsored: bool,
+    pub is_sponsored: bool,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Attachment {
-    name: String,
+    pub name: String,
     #[serde(rename = "type")]
-    atype: String,
-    filename: String,
+    pub atype: String,
+    pub filename: String,
     #[serde(rename = "ID")]
-    id: String,
-    url: String,
+    pub id: String,
+    pub url: String,
     #[serde(rename = "isMalicious")]
-    is_malicious: bool,
+    pub is_malicious: bool,
     #[serde(rename = "contentType")]
-    content_type: String,
+    pub content_type: String,
     #[serde(rename = "mimeType")]
-    mime_type: String,
+    pub mime_type: String,
     #[serde(rename = "fileSize")]
-    file_size: i32,
+    pub file_size: i32,
 }

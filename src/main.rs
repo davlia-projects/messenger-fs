@@ -18,6 +18,7 @@ extern crate tokio;
 #[macro_use]
 extern crate jsonrpc_client_core;
 extern crate jsonrpc_client_http;
+extern crate regex;
 
 mod common;
 mod entry;

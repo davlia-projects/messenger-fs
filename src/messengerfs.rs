@@ -1,19 +1,18 @@
-use std::cell::RefCell;
 use std::collections::BTreeMap;
-use std::collections::VecDeque;
 use std::ffi::OsStr;
-use std::rc::Rc;
 use std::result::Result;
 
 use failure::{err_msg, Error};
 use fuse::{FileAttr, FileType, Request};
+use regex::Regex;
+use reqwest;
 
 use common::constants::USER_DIR;
 use common::tree::{Node, Tree};
 use entry::FileSystemEntry;
-use messenger::credentials::Credentials;
 use messenger::session::Session;
 
+#[derive(Serialize, Deserialize)]
 pub struct MessengerFS {
     pub inode: u64,
     pub inodes: BTreeMap<String, u64>,
@@ -23,34 +22,41 @@ pub struct MessengerFS {
     session: Session,
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct EncodeMessengerFS {
-    pub inode: u64,
-    pub inodes: BTreeMap<String, u64>,
-    pub fs: Tree<FileSystemEntry>,
-    pub size: usize,
-}
-
 impl MessengerFS {
     pub fn new() -> Self {
-        let inodes = BTreeMap::new();
-        let fs = Tree::new();
-        let credentials = Credentials::from_env();
-        let session = Session::new(credentials);
+        Self::restore().unwrap_or_else(|_| {
+            println!("Could not restore from messenger. Creating new FS...");
+            let inodes = BTreeMap::new();
+            let fs = Tree::new();
+            let session = Session::default();
 
-        let mut fs = Self {
-            inode: 1,
-            inodes,
-            fs,
-            size: 0,
-            session,
-        };
+            let mut fs = Self {
+                inode: 1,
+                inodes,
+                fs,
+                size: 0,
+                session,
+            };
+            fs.create_root();
+            fs
+        })
+    }
 
-        fs.create_root();
-        fs.session
-            .get_latest_message()
-            .expect("Could not get latest message");
-        fs
+    pub fn restore() -> Result<Self, Error> {
+        let mut session = Session::default();
+        let last_message = session.get_latest_message()?;
+        if last_message.attachments.len() == 0 {
+            return Err(err_msg("No attachments found in last message"));
+        }
+        let url = last_message.attachments[0].url.clone();
+        let redirect_text = reqwest::get(&url)?.text()?;
+        let re = Regex::new("document.location.replace\\(\"(?P<url>.*?)\"\\);").unwrap();
+        let captured = re.captures(&redirect_text).unwrap();
+        let raw_url = captured["url"].to_string();
+        let re = Regex::new(r"\\/").unwrap();
+        let url = re.replace_all(&raw_url, "/").to_string();
+        let fs: MessengerFS = reqwest::get(&url)?.json()?;
+        Ok(fs)
     }
 
     pub fn create_root(&mut self) {
@@ -163,18 +169,12 @@ impl MessengerFS {
     }
 
     pub fn serialize(&self) -> String {
-        json!(self.fs).to_string()
+        json!(self).to_string()
     }
 
     pub fn fs_flush(&mut self) -> Result<(), Error> {
         let serialized = self.serialize();
         self.session.attachment(serialized, None)
-    }
-
-    pub fn restore(&mut self) -> Result<(), Error> {
-        let serialized = self.session.get_latest_message()?;
-        self.fs = serde_json::from_str(&serialized)?;
-        Ok(())
     }
 
     pub fn find(&mut self, inode: u64) -> Option<&mut Node<FileSystemEntry>> {

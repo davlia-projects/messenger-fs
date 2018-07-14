@@ -1,7 +1,4 @@
-use fuse::{FileAttr, FileType, Request};
-use serde::ser::{Serialize, SerializeStruct, Serializer};
-use std::cell::RefCell;
-use std::rc::Rc;
+use fuse::{FileAttr, FileType};
 
 #[derive(Serialize, Deserialize)]
 pub struct FileSystemEntry {

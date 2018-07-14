@@ -1,12 +1,10 @@
 use failure::Error;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::convert::AsRef;
 use std::hash::Hash;
 use std::rc::Rc;
 use std::result::Result;
 use std::time::{Duration, Instant};
-// Super basic in-memory key-value cache
 
 #[derive(Clone)]
 pub struct CachedObject<T>

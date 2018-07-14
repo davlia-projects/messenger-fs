@@ -7,6 +7,7 @@ pub struct Credentials {
 }
 
 impl Credentials {
+    #[allow(unused)]
     pub fn new(username: String, password: String) -> Self {
         Self { username, password }
     }

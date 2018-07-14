@@ -40,10 +40,6 @@ impl<T> Tree<T> {
         }
     }
 
-    pub fn get(&self, idx: NodeIdx) -> Option<&Node<T>> {
-        self.arena.get(&idx)
-    }
-
     pub fn get_mut(&mut self, idx: NodeIdx) -> Option<&mut Node<T>> {
         self.arena.get_mut(&idx)
     }
