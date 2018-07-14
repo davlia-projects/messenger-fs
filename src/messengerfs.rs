@@ -45,16 +45,16 @@ impl MessengerFS {
     pub fn restore() -> Result<Self, Error> {
         let mut session = Session::default();
         let last_message = session.get_latest_message()?;
-        if last_message.attachments.len() == 0 {
+        if last_message.attachments.is_empty() {
             return Err(err_msg("No attachments found in last message"));
         }
+        // There's a layer of indirection in the attachment payload
         let url = last_message.attachments[0].url.clone();
         let redirect_text = reqwest::get(&url)?.text()?;
         let re = Regex::new("document.location.replace\\(\"(?P<url>.*?)\"\\);").unwrap();
         let captured = re.captures(&redirect_text).unwrap();
         let raw_url = captured["url"].to_string();
-        let re = Regex::new(r"\\/").unwrap();
-        let url = re.replace_all(&raw_url, "/").to_string();
+        let url = raw_url.replace(r"\\/", "/");
         let fs: MessengerFS = reqwest::get(&url)?.json()?;
         Ok(fs)
     }
@@ -139,7 +139,9 @@ impl MessengerFS {
         _flags: u32,
     ) -> Result<u32, Error> {
         let add_size = {
-            let node = self.find(ino).ok_or(err_msg("Could not find inode"))?;
+            let node = self
+                .find(ino)
+                .ok_or_else(|| err_msg("Could not find inode"))?;
             let offset = offset as usize; // TODO: Support negative wrap-around indexing
             let add_size = data.len() as usize;
             let required_size = offset + add_size;
@@ -178,7 +180,7 @@ impl MessengerFS {
     }
 
     pub fn find(&mut self, inode: u64) -> Option<&mut Node<FileSystemEntry>> {
-        self.fs.get_mut(inode) // TODO: Is this kosher for 32-bit systems?
+        self.fs.get_mut(inode)
     }
 
     pub fn update_size(&mut self, inc: usize) {

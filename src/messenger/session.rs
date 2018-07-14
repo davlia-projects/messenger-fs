@@ -69,6 +69,7 @@ impl Session {
         Ok(())
     }
 
+    #[allow(unused)]
     pub fn message(&mut self, message: String, thread_id: Option<String>) -> Result<(), Error> {
         let thread_id = match thread_id {
             Some(thread_id) => thread_id,

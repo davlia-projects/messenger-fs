@@ -34,6 +34,7 @@ use messengerfs::MessengerFS;
 
 fn main() {
     let fs = MessengerFS::new();
+    let _ = fs::remove_dir_all("./fs/");
     fs::create_dir_all("./fs/").expect("Could not create mount directory");
     let options = ["-o", "noappledouble", "allow_other"]
         .iter()
