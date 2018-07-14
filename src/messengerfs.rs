@@ -19,7 +19,16 @@ pub struct MessengerFS {
     pub inodes: BTreeMap<String, u64>,
     pub fs: Tree<FileSystemEntry>,
     pub size: usize,
+    #[serde(skip_deserializing, skip_serializing)]
     session: Session,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct EncodeMessengerFS {
+    pub inode: u64,
+    pub inodes: BTreeMap<String, u64>,
+    pub fs: Tree<FileSystemEntry>,
+    pub size: usize,
 }
 
 impl MessengerFS {
@@ -38,6 +47,9 @@ impl MessengerFS {
         };
 
         fs.create_root();
+        fs.session
+            .get_latest_message()
+            .expect("Could not get latest message");
         fs
     }
 

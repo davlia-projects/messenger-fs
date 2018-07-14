@@ -8,6 +8,7 @@ use jsonrpc_client_http::{HttpHandle, HttpTransport};
 use common::cache::Cache;
 use messenger::config::Config;
 use messenger::credentials::Credentials;
+use messenger::model::*;
 
 jsonrpc_client!(pub struct MessengerClient{
     pub fn ping(&mut self, msg: &str) -> RpcRequest<String>;
@@ -17,27 +18,8 @@ jsonrpc_client!(pub struct MessengerClient{
     pub fn message(&mut self, message: String, thread_id: String) -> RpcRequest<String>;
     pub fn attachment(&mut self, attachment: String, thread_id: String) -> RpcRequest<String>;
     pub fn search(&mut self, name: String) -> RpcRequest<String>;
-    pub fn history(&mut self, thread_id: String, amount: u64, timestamp: String) -> RpcRequest<String>;
+    pub fn history(&mut self, thread_id: String, amount: u64, timestamp: Option<String>) -> RpcRequest<Vec<Message>>;
 });
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct User {
-    name: String,
-    #[serde(rename = "firstName")]
-    first_name: String,
-    vanity: String,
-    #[serde(rename = "thumbSrc")]
-    thumb_src: String,
-    #[serde(rename = "profileUrl")]
-    profile_url: String,
-    gender: i32,
-    #[serde(rename = "type")]
-    utype: String,
-    #[serde(rename = "isFriend")]
-    is_friend: bool,
-    #[serde(rename = "isBirthday")]
-    is_birthday: bool,
-}
 
 pub struct Session {
     client: MessengerClient<HttpHandle>,
@@ -118,7 +100,7 @@ impl Session {
         &mut self,
         thread_id: Option<String>,
         amount: u64,
-        timestamp: String,
+        timestamp: Option<String>,
     ) -> Result<(), Error> {
         let thread_id = match thread_id {
             Some(thread_id) => thread_id,
@@ -129,6 +111,11 @@ impl Session {
     }
 
     pub fn get_latest_message(&mut self) -> Result<String, Error> {
+        let fbid = self.get_self_thread_id()?;
+        let history = self.client.history(fbid, 1, None).call().unwrap();
+        let last_message = &history[0];
+        println!("{:?}", last_message);
+
         Ok("".to_string())
     }
 }

@@ -65,7 +65,6 @@ const server = rpc.server({
         const block = streamifier.createReadStream(buf);
         block.path = 'block';
         const msg = {
-            body: "attachment",
             attachment: block,
         };
         console.log(args[0], args[1]);
@@ -88,7 +87,11 @@ const server = rpc.server({
         if (messengerApi === undefined || messengerApi === null) {
             callback(null, "Login first");
         }
-        callback(null, "response");
+        let [threadId, amount, timestamp] = args;
+        messengerApi.getThreadHistory(threadId, amount, timestamp, (err, obj) => {
+            console.log(obj[0].attachments);
+            callback(null, obj);
+        });
     },
 });
 
