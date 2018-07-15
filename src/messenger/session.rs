@@ -1,9 +1,16 @@
+use std::sync::Mutex;
+
 use failure::Error;
 use jsonrpc_client_http::{HttpHandle, HttpTransport};
+use regex::Regex;
 
 use messenger::config::Config;
 use messenger::credentials::Credentials;
 use messenger::model::*;
+
+lazy_static! {
+    pub static ref SESSION: Mutex<Session> = Mutex::new(Session::default());
+}
 
 #[allow(unused)]
 jsonrpc_client!(pub struct MessengerClient{
@@ -100,5 +107,14 @@ impl Session {
         let fbid = self.get_self_thread_id()?;
         let history = self.client.history(fbid, 1, None).call().unwrap();
         Ok(history[0].clone())
+    }
+
+    pub fn get_attachment(&mut self, url: &str, buf: &mut Vec<u8>) -> Result<u64, Error> {
+        let redirect_text = reqwest::get(url)?.text()?;
+        let re = Regex::new("document.location.replace\\(\"(?P<url>.*?)\"\\);").unwrap();
+        let captured = re.captures(&redirect_text).unwrap();
+        let raw_url = captured["url"].to_string();
+        let url = raw_url.replace(r"\\/", "/");
+        Ok(reqwest::get(&url)?.copy_to(buf)?)
     }
 }

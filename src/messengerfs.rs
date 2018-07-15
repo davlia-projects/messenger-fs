@@ -7,19 +7,18 @@ use fuse::{FileAttr, FileType, Request};
 use regex::Regex;
 use reqwest;
 
-use common::constants::USER_DIR;
+use block::BlockPool;
+use common::constants::{MEGABYTES, USER_DIR};
 use common::tree::{Node, Tree};
 use entry::FileSystemEntry;
-use messenger::session::Session;
+use messenger::session::SESSION;
 
-#[derive(Serialize, Deserialize)]
 pub struct MessengerFS {
     pub inode: u64,
     pub inodes: BTreeMap<String, u64>,
     pub fs: Tree<FileSystemEntry>,
+    pub blocks: BlockPool,
     pub size: usize,
-    #[serde(skip_deserializing, skip_serializing)]
-    session: Session,
 }
 
 impl MessengerFS {
@@ -28,14 +27,14 @@ impl MessengerFS {
             println!("Could not restore from messenger. Creating new FS...");
             let inodes = BTreeMap::new();
             let fs = Tree::new();
-            let session = Session::default();
+            let blocks = BlockPool::new(4, 5 * MEGABYTES);
 
             let mut fs = Self {
                 inode: 1,
                 inodes,
                 fs,
                 size: 0,
-                session,
+                blocks,
             };
             fs.create_root();
             fs
@@ -43,8 +42,10 @@ impl MessengerFS {
     }
 
     pub fn restore() -> Result<Self, Error> {
-        let mut session = Session::default();
-        let last_message = session.get_latest_message()?;
+        let last_message = SESSION
+            .lock()
+            .expect("Could not acquire Session lock")
+            .get_latest_message()?;
         if last_message.attachments.is_empty() {
             return Err(err_msg("No attachments found in last message"));
         }
@@ -149,13 +150,13 @@ impl MessengerFS {
                 .entry
                 .data
                 .get_or_insert_with(|| Vec::with_capacity(required_size));
-            existing_data.resize(required_size, 0);
-            existing_data[offset..].copy_from_slice(&data[..]);
+
+            // existing_data.resize(required_size, 0);
+            // existing_data[offset..].copy_from_slice(&data[..]);
             node.entry.attr.size = existing_data.len() as u64;
             add_size
         };
         self.update_size(add_size);
-        self.fs_flush()?;
         Ok(add_size as u32)
     }
 
@@ -176,7 +177,10 @@ impl MessengerFS {
 
     pub fn fs_flush(&mut self) -> Result<(), Error> {
         let serialized = self.serialize();
-        self.session.attachment(serialized, None)
+        SESSION
+            .lock()
+            .expect("Could not acquire Session lock")
+            .attachment(serialized, None)
     }
 
     pub fn find(&mut self, inode: u64) -> Option<&mut Node<FileSystemEntry>> {
