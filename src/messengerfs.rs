@@ -146,10 +146,7 @@ impl MessengerFS {
             let offset = offset as usize; // TODO: Support negative wrap-around indexing
             let add_size = data.len() as usize;
             let required_size = offset + add_size;
-            let existing_data = node
-                .entry
-                .data
-                .get_or_insert_with(|| Vec::with_capacity(required_size));
+            let existing_data = node.entry.data.get_or_insert_with(|| Vec::new());
 
             // existing_data.resize(required_size, 0);
             // existing_data[offset..].copy_from_slice(&data[..]);
