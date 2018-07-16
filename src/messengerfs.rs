@@ -13,6 +13,7 @@ use common::tree::{Node, Tree};
 use entry::FileSystemEntry;
 use messenger::session::SESSION;
 
+#[derive(Serialize, Deserialize)]
 pub struct MessengerFS {
     pub inode: u64,
     pub inodes: BTreeMap<String, u64>,
@@ -139,21 +140,18 @@ impl MessengerFS {
         data: &[u8],
         _flags: u32,
     ) -> Result<u32, Error> {
-        let add_size = {
-            let node = self
-                .find(ino)
-                .ok_or_else(|| err_msg("Could not find inode"))?;
-            let offset = offset as usize; // TODO: Support negative wrap-around indexing
-            let add_size = data.len() as usize;
-            let required_size = offset + add_size;
-            let existing_data = node.entry.data.get_or_insert_with(|| Vec::new());
-
-            // existing_data.resize(required_size, 0);
-            // existing_data[offset..].copy_from_slice(&data[..]);
-            node.entry.attr.size = existing_data.len() as u64;
-            add_size
-        };
-        self.update_size(add_size);
+        let node = self
+            .fs
+            .get_mut(ino)
+            .ok_or_else(|| err_msg("Could not find inode"))?;
+        let offset = offset as usize; // TODO: Support negative wrap-around indexing
+        let add_size = data.len();
+        let required_size = offset + add_size;
+        let mut existing_data = node.entry.data.get_or_insert_with(|| Vec::new());
+        existing_data.retain(|loc| loc.offset + loc.size < offset as u64);
+        existing_data.append(&mut self.blocks.alloc(data.to_vec()));
+        node.entry.attr.size = existing_data.len() as u64;
+        self.size += add_size;
         Ok(add_size as u32)
     }
 
@@ -169,7 +167,8 @@ impl MessengerFS {
     }
 
     pub fn serialize(&self) -> String {
-        json!(self).to_string()
+        // json!(self).to_string()
+        "".to_string()
     }
 
     pub fn fs_flush(&mut self) -> Result<(), Error> {

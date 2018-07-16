@@ -10,9 +10,10 @@ use messenger::session::SESSION;
 
 type BlockID = u64;
 
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Serialize, Deserialize)]
 pub struct Block {
     id: BlockID,
+    #[serde(skip_serializing, skip_deserializing)]
     data: Option<Vec<u8>>,
     url: Option<String>,
     used: u64,
@@ -90,6 +91,7 @@ pub struct DataLoc {
 }
 
 // Memory management
+#[derive(Serialize, Deserialize)]
 pub struct BlockPool {
     arena: RefCell<HashMap<BlockID, Block>>,
     max_num_blocks: u64,
