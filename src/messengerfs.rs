@@ -23,8 +23,11 @@ pub struct MessengerFS {
 
 impl MessengerFS {
     pub fn new() -> Self {
-        Self::restore().unwrap_or_else(|_| {
-            println!("Could not restore from messenger. Creating new FS...");
+        Self::restore().unwrap_or_else(|err| {
+            println!(
+                "Could not restore from messenger: {}\nCreating new FS...",
+                err
+            );
             let inodes = BTreeMap::new();
             let fs = Tree::new();
             let blocks = BlockPool::new(4, 5 * MEGABYTES);
@@ -47,9 +50,9 @@ impl MessengerFS {
             .expect("Could not acquire Session lock")
             .get_latest_message()?;
 
-        let decoded = zstd::decode_all(last_message.body.as_bytes()).expect("Could not decode fs");
+        // TODO: Figure out how to encode this
 
-        Ok(serde_json::from_slice(&decoded[..])?)
+        Ok(serde_json::from_str(&last_message.body)?)
     }
 
     pub fn create_root(&mut self) {
@@ -176,11 +179,7 @@ impl MessengerFS {
     }
 
     pub fn serialize(&self) -> String {
-        zstd::encode_all(json!(self).to_string().as_bytes(), ZSTD_COMPRESSION_LEVEL)
-            .expect("Could not encode fs")
-            .iter()
-            .map(|byte| *byte as char)
-            .collect()
+        serde_json::to_string(self).expect("Could not serialize fs to json")
     }
 
     pub fn fs_flush(&mut self) -> Result<(), Error> {

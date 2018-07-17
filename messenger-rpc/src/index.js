@@ -91,8 +91,6 @@ const server = rpc.server({
         }
         let [threadId, amount, timestamp] = args;
         messengerApi.getThreadHistory(threadId, amount, timestamp, (err, obj) => {
-            console.log(obj[0]);
-            console.log(obj[0].attachments);
             if (timestamp != undefined) history.pop();
             callback(null, obj);
         });
