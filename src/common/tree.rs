@@ -44,6 +44,10 @@ impl<T> Tree<T> {
         self.arena.get_mut(&idx)
     }
 
+    pub fn get(&self, idx: NodeIdx) -> Option<&Node<T>> {
+        self.arena.get(&idx)
+    }
+
     pub fn delete(&mut self, parent: Option<NodeIdx>, idx: NodeIdx) {
         self.arena.remove(&idx);
         if let Some(parent) = parent {

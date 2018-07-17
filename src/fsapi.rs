@@ -1,4 +1,3 @@
-use std::cmp::min;
 use std::ffi::OsStr;
 use std::path::PathBuf;
 
@@ -153,15 +152,11 @@ impl Filesystem for MessengerFS {
             "read(ino={}, fh={}, offset={}, size={})",
             ino, fh, offset, size
         );
-        match self.find(ino) {
-            Some(Node { entry, .. }) => {
-                if let Some(ref data) = entry.data {
-                    let start = min(offset as usize, data.len());
-                    // reply.data(&data[start..]);
-                }
-            }
-            None => reply.error(ENOENT),
-        }
+        let result = self.fs_read(ino, fh, offset, size);
+        match result {
+            Ok(data) => reply.data(&data),
+            Err(_) => reply.error(ENOENT),
+        };
     }
 
     fn write(

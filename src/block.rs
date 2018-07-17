@@ -1,11 +1,11 @@
 use std::cell::RefCell;
 use std::cmp::min;
 use std::cmp::Ordering;
-use std::collections::hash_map::Entry;
 use std::collections::BinaryHeap;
 use std::collections::HashMap;
 use std::vec::Drain;
 
+use failure::Error;
 use messenger::session::SESSION;
 
 type BlockID = u64;
@@ -18,6 +18,7 @@ pub struct Block {
     url: Option<String>,
     used: u64,
     capacity: u64,
+    dirty: bool,
 }
 
 impl Ord for Block {
@@ -40,31 +41,27 @@ impl Block {
             capacity: size,
             url: None,
             data: None,
+            dirty: false,
         }
-    }
-    fn used(&self) -> u64 {
-        self.used
     }
 
     fn available(&self) -> u64 {
         self.capacity - self.used
     }
 
-    fn capacity(&self) -> u64 {
-        self.capacity
-    }
-
-    fn data(&mut self) -> &mut Vec<u8> {
-        let url = self.url.as_ref().unwrap();
-        self.data.get_or_insert_with(|| {
-            let mut data = Vec::new();
-            SESSION
-                .lock()
-                .expect("Could not acquire Session lock")
-                .get_attachment(url, &mut data)
-                .expect("Could not page data block");
-            data
-        })
+    pub fn data(&mut self) -> &mut Vec<u8> {
+        match self.url.as_ref() {
+            Some(url) => self.data.get_or_insert_with(|| {
+                let mut data = Vec::new();
+                SESSION
+                    .lock()
+                    .expect("Could not acquire Session lock")
+                    .get_attachment(url, &mut data)
+                    .expect("Could not page data block");
+                data
+            }),
+            None => self.data.get_or_insert_with(Vec::new),
+        }
     }
 
     fn fill(&mut self, data: &mut Drain<u8>) -> DataLoc {
@@ -75,6 +72,7 @@ impl Block {
         self.data()
             .splice(offset as usize.., data.take(available_size as usize));
         self.used += data_size;
+        self.dirty = true;
         DataLoc {
             block_id: self.id,
             offset,
@@ -93,7 +91,7 @@ pub struct DataLoc {
 // Memory management
 #[derive(Serialize, Deserialize)]
 pub struct BlockPool {
-    arena: RefCell<HashMap<BlockID, Block>>,
+    pub arena: RefCell<HashMap<BlockID, Block>>,
     max_num_blocks: u64,
     block_size: u64,
     block_id: BlockID,
@@ -131,16 +129,20 @@ impl BlockPool {
             remaining -= block_size;
             blocks.push(block);
         }
-        let (block_id, available) = {
-            let arena = self.arena.borrow();
-            let mut heap = BinaryHeap::from(arena.values().collect::<Vec<_>>());
-            let block = heap.pop().unwrap();
-            (block.id, block.available())
-        };
-        if available > remaining {
-            blocks.push(block_id);
-        } else {
-            blocks.push(self.create_block());
+        if remaining > 0 {
+            let (block_id, available) = {
+                let arena = self.arena.borrow();
+                let mut heap = BinaryHeap::from(arena.values().collect::<Vec<_>>());
+                match heap.pop() {
+                    Some(block) => (block.id, block.available()),
+                    None => (0, 0),
+                }
+            };
+            if available >= remaining {
+                blocks.push(block_id);
+            } else {
+                blocks.push(self.create_block());
+            }
         }
         blocks
     }
@@ -157,5 +159,33 @@ impl BlockPool {
                 block.fill(&mut stream)
             })
             .collect()
+    }
+
+    pub fn sync(&mut self) -> Result<(), Error> {
+        let mut arena = self.arena.borrow_mut();
+        arena.iter_mut().for_each(|(_, block)| {
+            if block.dirty {
+                let mut session = SESSION.lock().expect("Could not acquire session lock");
+                let thread_id = session.fbid.clone();
+                let resp = session
+                    .attachment(
+                        block
+                            .data
+                            .as_ref()
+                            .unwrap()
+                            .iter()
+                            .map(|byte| *byte as char)
+                            .collect(),
+                        thread_id,
+                    )
+                    .expect("Could not send attachment");
+                let message = session
+                    .get_message(resp.message_id)
+                    .expect("Could not find message that was just sent");
+                block.url = Some(message.attachments[0].url.clone());
+                block.dirty = false;
+            }
+        });
+        Ok(())
     }
 }

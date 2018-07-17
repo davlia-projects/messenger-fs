@@ -1,11 +1,10 @@
+use std::cmp::{max, min};
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::result::Result;
 
 use failure::{err_msg, Error};
 use fuse::{FileAttr, FileType, Request};
-use regex::Regex;
-use reqwest;
 
 use block::BlockPool;
 use common::constants::{MEGABYTES, USER_DIR};
@@ -47,18 +46,8 @@ impl MessengerFS {
             .lock()
             .expect("Could not acquire Session lock")
             .get_latest_message()?;
-        if last_message.attachments.is_empty() {
-            return Err(err_msg("No attachments found in last message"));
-        }
-        // There's a layer of indirection in the attachment payload
-        let url = last_message.attachments[0].url.clone();
-        let redirect_text = reqwest::get(&url)?.text()?;
-        let re = Regex::new("document.location.replace\\(\"(?P<url>.*?)\"\\);").unwrap();
-        let captured = re.captures(&redirect_text).unwrap();
-        let raw_url = captured["url"].to_string();
-        let url = raw_url.replace(r"\\/", "/");
-        let fs: MessengerFS = reqwest::get(&url)?.json()?;
-        Ok(fs)
+
+        Ok(serde_json::from_str(&last_message.body)?)
     }
 
     pub fn create_root(&mut self) {
@@ -132,11 +121,33 @@ impl MessengerFS {
         Ok(ino) // TODO: Generate file handles
     }
 
+    pub fn fs_read(&self, ino: u64, _fh: u64, offset: i64, _size: u32) -> Result<Vec<u8>, Error> {
+        match self.fs.get(ino) {
+            Some(Node { entry, .. }) => {
+                let data_len = entry.attr.size;
+                let start = min(offset as u64, data_len);
+                let mut curr_pos: u64 = 0;
+                let mut data = Vec::new();
+                let mut arena = self.blocks.arena.borrow_mut();
+                for loc in entry.data.as_ref().unwrap() {
+                    if curr_pos + loc.size > start {
+                        let block_start = max(start - curr_pos, 0);
+                        let mut block = arena.get_mut(&loc.block_id).unwrap();
+                        let mut block_data = block.data()[block_start as usize..].to_vec();
+                        data.append(&mut block_data);
+                    }
+                    curr_pos += loc.size;
+                }
+                Ok(data)
+            }
+            None => Err(err_msg("Could not read file")),
+        }
+    }
     pub fn fs_write(
         &mut self,
         ino: u64,
         _fh: u64,
-        offset: i64,
+        _offset: i64, // TODO: Investigate how this is used
         data: &[u8],
         _flags: u32,
     ) -> Result<u32, Error> {
@@ -144,13 +155,9 @@ impl MessengerFS {
             .fs
             .get_mut(ino)
             .ok_or_else(|| err_msg("Could not find inode"))?;
-        let offset = offset as usize; // TODO: Support negative wrap-around indexing
         let add_size = data.len();
-        let required_size = offset + add_size;
-        let mut existing_data = node.entry.data.get_or_insert_with(|| Vec::new());
-        existing_data.retain(|loc| loc.offset + loc.size < offset as u64);
-        existing_data.append(&mut self.blocks.alloc(data.to_vec()));
-        node.entry.attr.size = existing_data.len() as u64;
+        node.entry.data = Some(self.blocks.alloc(data.to_vec()));
+        node.entry.attr.size += add_size as u64;
         self.size += add_size;
         Ok(add_size as u32)
     }
@@ -167,23 +174,20 @@ impl MessengerFS {
     }
 
     pub fn serialize(&self) -> String {
-        // json!(self).to_string()
-        "".to_string()
+        json!(self).to_string()
     }
 
     pub fn fs_flush(&mut self) -> Result<(), Error> {
+        self.blocks.sync()?;
         let serialized = self.serialize();
         SESSION
             .lock()
             .expect("Could not acquire Session lock")
-            .attachment(serialized, None)
+            .message(serialized, None)?;
+        Ok(())
     }
 
     pub fn find(&mut self, inode: u64) -> Option<&mut Node<FileSystemEntry>> {
         self.fs.get_mut(inode)
-    }
-
-    pub fn update_size(&mut self, inc: usize) {
-        self.size += inc;
     }
 }
