@@ -7,7 +7,7 @@ use failure::{err_msg, Error};
 use fuse::{FileAttr, FileType, Request};
 
 use block::BlockPool;
-use common::constants::{MEGABYTES, USER_DIR};
+use common::constants::{MEGABYTES, USER_DIR, ZSTD_COMPRESSION_LEVEL};
 use common::tree::{Node, Tree};
 use entry::FileSystemEntry;
 use messenger::session::SESSION;
@@ -47,7 +47,9 @@ impl MessengerFS {
             .expect("Could not acquire Session lock")
             .get_latest_message()?;
 
-        Ok(serde_json::from_str(&last_message.body)?)
+        let decoded = zstd::decode_all(last_message.body.as_bytes()).expect("Could not decode fs");
+
+        Ok(serde_json::from_slice(&decoded[..])?)
     }
 
     pub fn create_root(&mut self) {
@@ -174,7 +176,11 @@ impl MessengerFS {
     }
 
     pub fn serialize(&self) -> String {
-        json!(self).to_string()
+        zstd::encode_all(json!(self).to_string().as_bytes(), ZSTD_COMPRESSION_LEVEL)
+            .expect("Could not encode fs")
+            .iter()
+            .map(|byte| *byte as char)
+            .collect()
     }
 
     pub fn fs_flush(&mut self) -> Result<(), Error> {
