@@ -52,7 +52,8 @@ const server = rpc.server({
         }
         let [message, threadId] = args;
         messengerApi.sendMessage(message, threadId, (err, obj) => {
-            callback(null, "sent message");
+            console.log(obj);
+            callback(null, obj);
         })
     },
     attachment: (args, callback) => {
@@ -69,7 +70,8 @@ const server = rpc.server({
         };
         console.log(args[0], args[1]);
         messengerApi.sendMessage(msg, threadId, (err, obj) => {
-            callback(null, "attachment sent");
+            console.log(obj);
+            callback(null, obj);
         });
     },
     search: (args, callback) => {
@@ -89,8 +91,7 @@ const server = rpc.server({
         }
         let [threadId, amount, timestamp] = args;
         messengerApi.getThreadHistory(threadId, amount, timestamp, (err, obj) => {
-            console.log(obj[0]);
-            console.log(obj[0].attachments);
+            if (timestamp != undefined) history.pop();
             callback(null, obj);
         });
     },

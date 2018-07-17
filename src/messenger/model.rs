@@ -56,3 +56,12 @@ pub struct Attachment {
     #[serde(rename = "fileSize")]
     pub file_size: i32,
 }
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct MessageSent {
+    #[serde(rename = "threadID")]
+    pub thread_id: String,
+    #[serde(rename = "messageID")]
+    pub message_id: String,
+    pub timestamp: u64,
+}

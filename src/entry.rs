@@ -1,10 +1,12 @@
 use fuse::{FileAttr, FileType};
 
+use block::DataLoc;
+
 #[derive(Serialize, Deserialize)]
 pub struct FileSystemEntry {
     pub name: String,
     pub attr: EncodeFileAttr,
-    pub data: Option<Vec<u8>>,
+    pub data: Option<Vec<DataLoc>>,
 }
 
 impl FileSystemEntry {

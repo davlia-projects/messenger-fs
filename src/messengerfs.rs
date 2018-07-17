@@ -1,41 +1,43 @@
+use std::cmp::{max, min};
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::result::Result;
 
 use failure::{err_msg, Error};
 use fuse::{FileAttr, FileType, Request};
-use regex::Regex;
-use reqwest;
 
-use common::constants::USER_DIR;
+use block::BlockPool;
+use common::constants::{MEGABYTES, USER_DIR, ZSTD_COMPRESSION_LEVEL};
 use common::tree::{Node, Tree};
 use entry::FileSystemEntry;
-use messenger::session::Session;
+use messenger::session::SESSION;
 
 #[derive(Serialize, Deserialize)]
 pub struct MessengerFS {
     pub inode: u64,
     pub inodes: BTreeMap<String, u64>,
     pub fs: Tree<FileSystemEntry>,
+    pub blocks: BlockPool,
     pub size: usize,
-    #[serde(skip_deserializing, skip_serializing)]
-    session: Session,
 }
 
 impl MessengerFS {
     pub fn new() -> Self {
-        Self::restore().unwrap_or_else(|_| {
-            println!("Could not restore from messenger. Creating new FS...");
+        Self::restore().unwrap_or_else(|err| {
+            println!(
+                "Could not restore from messenger: {}\nCreating new FS...",
+                err
+            );
             let inodes = BTreeMap::new();
             let fs = Tree::new();
-            let session = Session::default();
+            let blocks = BlockPool::new(4, 5 * MEGABYTES);
 
             let mut fs = Self {
                 inode: 1,
                 inodes,
                 fs,
                 size: 0,
-                session,
+                blocks,
             };
             fs.create_root();
             fs
@@ -43,20 +45,14 @@ impl MessengerFS {
     }
 
     pub fn restore() -> Result<Self, Error> {
-        let mut session = Session::default();
-        let last_message = session.get_latest_message()?;
-        if last_message.attachments.is_empty() {
-            return Err(err_msg("No attachments found in last message"));
-        }
-        // There's a layer of indirection in the attachment payload
-        let url = last_message.attachments[0].url.clone();
-        let redirect_text = reqwest::get(&url)?.text()?;
-        let re = Regex::new("document.location.replace\\(\"(?P<url>.*?)\"\\);").unwrap();
-        let captured = re.captures(&redirect_text).unwrap();
-        let raw_url = captured["url"].to_string();
-        let url = raw_url.replace(r"\\/", "/");
-        let fs: MessengerFS = reqwest::get(&url)?.json()?;
-        Ok(fs)
+        let last_message = SESSION
+            .lock()
+            .expect("Could not acquire Session lock")
+            .get_latest_message()?;
+
+        // TODO: Figure out how to encode this
+
+        Ok(serde_json::from_str(&last_message.body)?)
     }
 
     pub fn create_root(&mut self) {
@@ -130,32 +126,44 @@ impl MessengerFS {
         Ok(ino) // TODO: Generate file handles
     }
 
+    pub fn fs_read(&self, ino: u64, _fh: u64, offset: i64, _size: u32) -> Result<Vec<u8>, Error> {
+        match self.fs.get(ino) {
+            Some(Node { entry, .. }) => {
+                let data_len = entry.attr.size;
+                let start = min(offset as u64, data_len);
+                let mut curr_pos: u64 = 0;
+                let mut data = Vec::new();
+                let mut arena = self.blocks.arena.borrow_mut();
+                for loc in entry.data.as_ref().unwrap() {
+                    if curr_pos + loc.size > start {
+                        let block_start = max(start - curr_pos, 0);
+                        let mut block = arena.get_mut(&loc.block_id).unwrap();
+                        let mut block_data = block.data()[block_start as usize..].to_vec();
+                        data.append(&mut block_data);
+                    }
+                    curr_pos += loc.size;
+                }
+                Ok(data)
+            }
+            None => Err(err_msg("Could not read file")),
+        }
+    }
     pub fn fs_write(
         &mut self,
         ino: u64,
         _fh: u64,
-        offset: i64,
+        _offset: i64, // TODO: Investigate how this is used
         data: &[u8],
         _flags: u32,
     ) -> Result<u32, Error> {
-        let add_size = {
-            let node = self
-                .find(ino)
-                .ok_or_else(|| err_msg("Could not find inode"))?;
-            let offset = offset as usize; // TODO: Support negative wrap-around indexing
-            let add_size = data.len() as usize;
-            let required_size = offset + add_size;
-            let existing_data = node
-                .entry
-                .data
-                .get_or_insert_with(|| Vec::with_capacity(required_size));
-            existing_data.resize(required_size, 0);
-            existing_data[offset..].copy_from_slice(&data[..]);
-            node.entry.attr.size = existing_data.len() as u64;
-            add_size
-        };
-        self.update_size(add_size);
-        self.fs_flush()?;
+        let node = self
+            .fs
+            .get_mut(ino)
+            .ok_or_else(|| err_msg("Could not find inode"))?;
+        let add_size = data.len();
+        node.entry.data = Some(self.blocks.alloc(data.to_vec()));
+        node.entry.attr.size += add_size as u64;
+        self.size += add_size;
         Ok(add_size as u32)
     }
 
@@ -171,19 +179,20 @@ impl MessengerFS {
     }
 
     pub fn serialize(&self) -> String {
-        json!(self).to_string()
+        serde_json::to_string(self).expect("Could not serialize fs to json")
     }
 
     pub fn fs_flush(&mut self) -> Result<(), Error> {
+        self.blocks.sync()?;
         let serialized = self.serialize();
-        self.session.attachment(serialized, None)
+        SESSION
+            .lock()
+            .expect("Could not acquire Session lock")
+            .message(serialized, None)?;
+        Ok(())
     }
 
     pub fn find(&mut self, inode: u64) -> Option<&mut Node<FileSystemEntry>> {
         self.fs.get_mut(inode)
-    }
-
-    pub fn update_size(&mut self, inc: usize) {
-        self.size += inc;
     }
 }

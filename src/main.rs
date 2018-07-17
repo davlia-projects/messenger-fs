@@ -19,7 +19,11 @@ extern crate tokio;
 extern crate jsonrpc_client_core;
 extern crate jsonrpc_client_http;
 extern crate regex;
+#[macro_use]
+extern crate lazy_static;
+extern crate zstd;
 
+mod block;
 mod common;
 mod entry;
 mod fsapi;
