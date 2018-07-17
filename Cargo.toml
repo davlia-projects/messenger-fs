@@ -21,4 +21,4 @@ jsonrpc-client-core = "0.5.0"
 jsonrpc-client-http = "0.5.0"
 regex = "1"
 lazy_static = "1.0"
-
+zstd = "0.4"

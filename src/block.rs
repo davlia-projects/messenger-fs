@@ -5,6 +5,7 @@ use std::collections::BinaryHeap;
 use std::collections::HashMap;
 use std::vec::Drain;
 
+use common::constants::ZSTD_COMPRESSION_LEVEL;
 use failure::Error;
 use messenger::session::SESSION;
 
@@ -58,7 +59,7 @@ impl Block {
                     .expect("Could not acquire Session lock")
                     .get_attachment(url, &mut data)
                     .expect("Could not page data block");
-                data
+                zstd::decode_all(&data[..]).expect("Could not decode block")
             }),
             None => self.data.get_or_insert_with(Vec::new),
         }
@@ -167,17 +168,14 @@ impl BlockPool {
             if block.dirty {
                 let mut session = SESSION.lock().expect("Could not acquire session lock");
                 let thread_id = session.fbid.clone();
+                let encoded =
+                    zstd::encode_all(&block.data.as_ref().unwrap()[..], ZSTD_COMPRESSION_LEVEL)
+                        .expect("Encoding failed")
+                        .iter()
+                        .map(|byte| *byte as char)
+                        .collect();
                 let resp = session
-                    .attachment(
-                        block
-                            .data
-                            .as_ref()
-                            .unwrap()
-                            .iter()
-                            .map(|byte| *byte as char)
-                            .collect(),
-                        thread_id,
-                    )
+                    .attachment(encoded, thread_id)
                     .expect("Could not send attachment");
                 let message = session
                     .get_message(resp.message_id)
